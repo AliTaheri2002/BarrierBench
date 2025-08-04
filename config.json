@@ -1,0 +1,242 @@
+{
+  "_comment": "Configuration file for Graph of Thoughts Barrier Certificate Synthesis with Llama",
+  "_note": "Optimized for NUMERICAL OUTPUT FORCING in parameter synthesis",
+  
+  "llama8b": {
+    "_comment": "Primary Llama configuration via Together AI (optimized for numerical output)",
+    "api_key": "3374c7145054d253f8b12c8f74bfd0a1c07966d6380f8c5a301ecc19fa2aa5a6",
+    "model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+    "api_base": "https://api.together.xyz/v1",
+    "temperature": 0.6,
+    "max_tokens": 2048,
+    "prompt_token_cost": 0.0002,
+    "response_token_cost": 0.0002
+  },
+  
+  "llama70b": {
+    "_comment": "Larger Llama model for complex problems (better mathematical reasoning)",
+    "api_key": "3374c7145054d253f8b12c8f74bfd0a1c07966d6380f8c5a301ecc19fa2aa5a6",
+    "model": "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+    "api_base": "https://api.together.xyz/v1",
+    "temperature": 0.5,
+    "max_tokens": 2048,
+    "prompt_token_cost": 0.0009,
+    "response_token_cost": 0.0009
+  },
+  
+  "llama7b-hf": {
+    "_comment": "Local HuggingFace Llama (requires local GPU)",
+    "model_id": "Llama-2-7b-chat-hf",
+    "cache_dir": "./llama_cache",
+    "prompt_token_cost": 0.0,
+    "response_token_cost": 0.0,
+    "temperature": 0.6,
+    "top_k": 10,
+    "max_tokens": 4096
+  },
+  
+  "gpt4o_mini": {
+    "_comment": "Backup OpenAI configuration (if Llama fails)",
+    "api_key": "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",
+    "model": "gpt-4o-mini",
+    "api_base": "https://api.openai.com/v1",
+    "temperature": 0.7,
+    "max_tokens": 2048,
+    "prompt_token_cost": 0.00015,
+    "response_token_cost": 0.0006
+  },
+  
+  "system_settings": {
+    "_comment": "System configuration optimized for numerical barrier synthesis",
+    "default_model": "llama8b",
+    "fallback_model": "gpt4o_mini",
+    "max_retries": 3,
+    "timeout_seconds": 120,
+    "enable_caching": true,
+    "log_level": "INFO",
+    "save_intermediate_results": true,
+    "output_directory": "results/",
+    "force_numerical_output": true,
+    "immediate_early_stopping": true
+  },
+  
+  "synthesis_settings": {
+    "_comment": "Barrier certificate synthesis specific settings - NUMERICAL FOCUS",
+    "max_synthesis_iterations": 3,
+    "condition_tolerance": 1e-6,
+    "sampling_points_per_condition": 200,
+    "zero_level_set_tolerance": 0.2,
+    "force_numerical_parameters": true,
+    "reject_symbolic_parameters": true,
+    "numerical_parameter_defaults": {
+      "linear": {
+        "a": 2.0,
+        "b": 1.5, 
+        "c": -0.8
+      },
+      "quadratic": {
+        "a": 1.5,
+        "b": 0.2,
+        "c": 1.0,
+        "d": 0.0,
+        "e": 0.0,
+        "f": -1.2
+      },
+      "nonlinear": {
+        "a": 1.2,
+        "b": 1.0,
+        "c": -1.1
+      },
+      "polynomial": {
+        "a": 0.5,
+        "b": 0.3,
+        "c": 1.1,
+        "d": 0.9,
+        "e": 0.1,
+        "f": -2.1
+      }
+    },
+    "optimization_settings": {
+      "max_degree": 4,
+      "prefer_quadratic": true,
+      "include_cross_terms": true,
+      "regularization_weight": 0.01,
+      "numerical_stability_check": true
+    }
+  },
+  
+  "validation_settings": {
+    "_comment": "Validation and scoring configuration with immediate stopping",
+    "strict_validation": true,
+    "violation_tolerance": 0.05,
+    "minimum_quality_score": 6.0,
+    "enable_formal_verification": true,
+    "verification_timeout": 30,
+    "immediate_stop_on_perfect": true,
+    "z3_verification_preferred": true,
+    "numerical_content_bonus": 2.0
+  },
+  
+  "template_settings": {
+    "_comment": "Template-specific configurations for 4 template types",
+    "template_types": ["linear", "quadratic", "nonlinear", "polynomial"],
+    "attempts_per_template": 4,
+    "template_priorities": {
+      "linear": 1,
+      "quadratic": 2, 
+      "nonlinear": 3,
+      "polynomial": 4
+    },
+    "template_specifications": {
+      "linear": {
+        "structure": "a*x1 + b*x2 + c",
+        "degree": 1,
+        "parameters": ["a", "b", "c"],
+        "default_values": [2.0, 1.5, -0.8],
+        "use_cases": ["Linear systems", "Simple separation"]
+      },
+      "quadratic": {
+        "structure": "a*x1**2 + b*x1*x2 + c*x2**2 + d*x1 + e*x2 + f",
+        "degree": 2,
+        "parameters": ["a", "b", "c", "d", "e", "f"],
+        "default_values": [1.5, 0.2, 1.0, 0.0, 0.0, -1.2],
+        "use_cases": ["Linear systems", "Mild nonlinearities", "Elliptical boundaries"]
+      },
+      "nonlinear": {
+        "structure": "a*x1**2 + b*x2**2 + c",
+        "degree": 2,
+        "parameters": ["a", "b", "c"],
+        "default_values": [1.2, 1.0, -1.1],
+        "use_cases": ["Nonlinear systems", "Circular boundaries"]
+      },
+      "polynomial": {
+        "structure": "a*x1**4 + b*x2**4 + c*x1**2 + d*x2**2 + e*x1*x2 + f",
+        "degree": 4,
+        "parameters": ["a", "b", "c", "d", "e", "f"],
+        "default_values": [0.5, 0.3, 1.1, 0.9, 0.1, -2.1],
+        "use_cases": ["High-degree nonlinear", "Complex boundaries"]
+      }
+    }
+  },
+  
+  "problem_templates": {
+    "_comment": "Pre-defined problem templates for common scenarios",
+    "linear_2d_stable": {
+      "dynamics": "dx1/dt = -x1 + 0.5*x2, dx2/dt = -x2 - 0.3*x1",
+      "initial_set": {"type": "ball", "radius": 0.5, "center": [0, 0]},
+      "unsafe_set": {"type": "ball", "radius": 3.0, "center": [0, 0], "complement": true},
+      "recommended_template": "quadratic",
+      "expected_result": "1.5*x1**2 + 0.2*x1*x2 + 1.0*x2**2 - 1.2"
+    },
+    "nonlinear_2d": {
+      "dynamics": "dx1/dt = x2, dx2/dt = -x1 + x1^3 - 0.1*x2",
+      "initial_set": {"type": "box", "bounds": [[-0.5, 0.5], [-0.5, 0.5]]},
+      "unsafe_set": {"type": "union", "sets": [
+        {"type": "halfspace", "a": [1, 0], "b": 2},
+        {"type": "halfspace", "a": [-1, 0], "b": 2}
+      ]},
+      "recommended_template": "polynomial",
+      "expected_result": "0.5*x1**4 + 0.3*x2**4 + 1.1*x1**2 + 0.9*x2**2 - 2.1"
+    }
+  },
+  
+  "pipeline_settings": {
+    "_comment": "Pipeline structure configuration",
+    "pipeline_structure": {
+      "phase_1": {
+        "name": "Analysis",
+        "operations": 2,
+        "aggregation": true,
+        "description": "System analysis and dynamics understanding"
+      },
+      "phase_2": {
+        "name": "Template Generation", 
+        "operations": 4,
+        "template_types": ["linear", "quadratic", "nonlinear", "polynomial"],
+        "description": "Generate 4 different template types"
+      },
+      "phase_3": {
+        "name": "Parameter Synthesis",
+        "operations": 16,
+        "structure": "4 templates × 4 attempts each",
+        "immediate_stopping": true,
+        "description": "Numerical parameter synthesis with immediate stopping"
+      },
+      "phase_4": {
+        "name": "Aggregation",
+        "operations": 1,
+        "description": "Aggregate best results from each template"
+      },
+      "phase_5": {
+        "name": "Refinement",
+        "operations": 2,
+        "description": "Final refinement and verification"
+      }
+    },
+    "total_operations": 46,
+    "immediate_early_stopping": true,
+    "stop_on_perfect_solution": true
+  },
+  
+  "llama_specific": {
+    "_comment": "Llama-specific optimization for numerical output",
+    "use_system_prompt": true,
+    "enable_few_shot": true,
+    "max_context_length": 8192,
+    "chunk_large_prompts": true,
+    "numerical_forcing": {
+      "enabled": true,
+      "retry_on_symbolic": true,
+      "max_retries": 3,
+      "temperature_reduction": 0.1,
+      "fallback_templates": true
+    },
+    "prompt_optimization": {
+      "use_structured_format": true,
+      "include_examples": true,
+      "break_complex_tasks": true,
+      "emphasize_numerical_output": true,
+      "reject_symbolic_parameters": true
+    }
+  }
+}
