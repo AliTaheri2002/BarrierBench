@@ -1,1 +1,0 @@
-# Physics-Informed-Graph-of-Thoughts
