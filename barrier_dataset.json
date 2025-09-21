@@ -1,0 +1,349 @@
+{
+  "solved_problems": [
+    {
+      "problem": {
+        "dynamics": "dx1/dt = -x1, dx2/dt = -2*x2",
+        "initial_set": {
+          "type": "ball",
+          "radius": 0.5,
+          "center": [
+            0,
+            0
+          ]
+        },
+        "unsafe_set": {
+          "type": "ball",
+          "radius": 2.0,
+          "center": [
+            0,
+            0
+          ],
+          "complement": true
+        },
+        "description": "Linear System - Real Eigenvalues (Variant)"
+      },
+      "barrier": "x1**2 + x2**2 - 1",
+      "template_type": "llm_generated"
+    },
+    {
+      "problem": {
+        "dynamics": "dx1/dt = -0.1*x1 + 0.05*x2, dx2/dt = -0.05*x1 - 0.1*x2, dx3/dt = -0.2*x3",
+        "initial_set": {
+          "type": "ball",
+          "radius": 1.0,
+          "center": [
+            0,
+            0,
+            0
+          ]
+        },
+        "unsafe_set": {
+          "type": "ball",
+          "radius": 3.5,
+          "center": [
+            0,
+            0,
+            0
+          ],
+          "complement": true
+        },
+        "description": "3D stable linear system with decoupled z-axis"
+      },
+      "barrier": "x1**2 + x2**2 + x3**2 - 12",
+      "template_type": "llm_generated"
+    },
+    {
+      "problem": {
+        "dynamics": "dx1/dt = -0.2*x1, dx2/dt = -0.3*x2",
+        "initial_set": {
+          "type": "ball",
+          "radius": 1.0,
+          "center": [
+            0,
+            0
+          ]
+        },
+        "unsafe_set": {
+          "type": "ball",
+          "radius": 3.0,
+          "center": [
+            0,
+            0
+          ],
+          "complement": true
+        },
+        "description": "Simple stable system"
+      },
+      "barrier": "x1**2 + x2**2 - 4",
+      "template_type": "llm_generated"
+    },
+    {
+      "problem": {
+        "dynamics": "dx1/dt = -0.1*x1 - x2, dx2/dt = x1 - 0.1*x2",
+        "initial_set": {
+          "type": "ball",
+          "radius": 0.5,
+          "center": [
+            0,
+            0
+          ]
+        },
+        "unsafe_set": {
+          "type": "ball",
+          "radius": 2.0,
+          "center": [
+            0,
+            0
+          ],
+          "complement": true
+        },
+        "description": "Spiral stable dynamics"
+      },
+      "barrier": "x1**2 + x2**2 - 1",
+      "template_type": "llm_generated"
+    },
+    {
+      "problem": {
+        "dynamics": "dx1/dt = -x1 + 0.5*x2, dx2/dt = -2*x2",
+        "initial_set": {
+          "type": "bounds",
+          "bounds": [
+            [
+              -0.5,
+              1.0
+            ],
+            [
+              -0.3,
+              0.8
+            ]
+          ]
+        },
+        "unsafe_set": {
+          "type": "ball",
+          "radius": 3.0,
+          "center": [
+            0,
+            0
+          ],
+          "complement": true
+        },
+        "description": "Mixed geometry - bounds to ball"
+      },
+      "barrier": "x1**2 + x2**2 - 2",
+      "template_type": "llm_generated"
+    },
+    {
+      "problem": {
+        "dynamics": "dx1/dt = -0.5*x1, dx2/dt = -0.4*x2, dx3/dt = -0.3*x3, dx4/dt = -0.6*x4",
+        "initial_set": {
+          "type": "ball",
+          "radius": 0.8,
+          "center": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "unsafe_set": {
+          "type": "ball",
+          "radius": 3.0,
+          "center": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "complement": true
+        },
+        "description": "4D completely decoupled stable linear system"
+      },
+      "barrier": "x1**2 + x2**2 + x3**2 + x4**2 - 1",
+      "template_type": "llm_generated"
+    },
+    {
+      "problem": {
+        "dynamics": "dx1/dt = -0.4*x1 + 0.1*x2, dx2/dt = -0.5*x2 + 0.08*x3, dx3/dt = -0.6*x3 + 0.05*x1, dx4/dt = -0.3*x4",
+        "initial_set": {
+          "type": "ball",
+          "radius": 0.7,
+          "center": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "unsafe_set": {
+          "type": "ball",
+          "radius": 2.5,
+          "center": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "complement": true
+        },
+        "description": "4D with weak coupling between x1-x2-x3 chain"
+      },
+      "barrier": "x1**2 + x2**2 + x3**2 + x4**2 - 1",
+      "template_type": "llm_generated"
+    },
+    {
+      "problem": {
+        "dynamics": "dx1/dt = -x1 + x2*x3, dx2/dt = -x2 + x1*x3, dx3/dt = -x3 - x1*x2",
+        "initial_set": {
+          "type": "ball",
+          "radius": 0.2,
+          "center": [
+            0,
+            0,
+            0
+          ]
+        },
+        "unsafe_set": {
+          "type": "ball",
+          "radius": 1.0,
+          "center": [
+            0,
+            0,
+            0
+          ],
+          "complement": true
+        },
+        "description": "3D nonlinear coupling system"
+      },
+      "barrier": "x1**2 + x2**2 + x3**2 - 0.25",
+      "template_type": "llm_generated"
+    },
+    {
+      "problem": {
+        "dynamics": "dx1/dt = -x1, dx2/dt = -x2, dx3/dt = -x3",
+        "initial_set": {
+          "type": "ball",
+          "radius": 1.0,
+          "center": [
+            0,
+            0,
+            0
+          ]
+        },
+        "unsafe_set": {
+          "type": "ball",
+          "radius": 3.0,
+          "center": [
+            0,
+            0,
+            0
+          ],
+          "complement": true
+        },
+        "description": "3D Linear Stability System"
+      },
+      "barrier": "x1**2 + x2**2 + x3**2 - 8",
+      "template_type": "llm_generated"
+    },
+    {
+      "problem": {
+        "dynamics": "dx1/dt = -x1, dx2/dt = -x2",
+        "initial_set": {
+          "type": "ball",
+          "radius": 0.5,
+          "center": [
+            0,
+            0
+          ]
+        },
+        "unsafe_set": {
+          "type": "ball",
+          "radius": 1.5,
+          "center": [
+            0,
+            0
+          ],
+          "complement": true
+        },
+        "description": "Simple Stable Linear System"
+      },
+      "barrier": "x1**2 + x2**2 - 1",
+      "template_type": "llm_generated"
+    },
+    {
+      "problem": {
+        "dynamics": "x1[k+1] = 0.9*x1[k], x2[k+1] = 0.8*x2[k]",
+        "initial_set": {
+          "type": "ball",
+          "radius": 1.0,
+          "center": [
+            0,
+            0
+          ]
+        },
+        "unsafe_set": {
+          "type": "ball",
+          "radius": 3.0,
+          "center": [
+            0,
+            0
+          ],
+          "complement": true
+        },
+        "description": "Discrete Linear System"
+      },
+      "barrier": "x1**2 + x2**2 - 4",
+      "template_type": "llm_generated"
+    },
+    {
+      "problem": {
+        "dynamics": "dx1/dt = x2 - x1**3, dx2/dt = -0.5*x1 - 0.3*x2",
+        "initial_set": {
+          "type": "ball",
+          "radius": 1.0,
+          "center": [
+            0,
+            0
+          ]
+        },
+        "unsafe_set": {
+          "type": "ball",
+          "radius": 2.5,
+          "center": [
+            0,
+            0
+          ],
+          "complement": true
+        },
+        "description": "Controlled Nonlinear System",
+        "controller": "u0 = -0.5*x1 - 0.3*x2"
+      },
+      "barrier": "0.5*x1**2 + x2**2 - 3",
+      "template_type": "llm_generated"
+    },
+    {
+      "problem": {
+        "dynamics": "dx1/dt = x2, dx2/dt = -0.2*x1 - 0.2*x2",
+        "initial_set": {
+          "type": "ball",
+          "radius": 0.8,
+          "center": [
+            0,
+            0
+          ]
+        },
+        "unsafe_set": {
+          "type": "ball",
+          "radius": 4.0,
+          "center": [
+            0,
+            0
+          ],
+          "complement": true
+        },
+        "description": "Linear System - Complex Eigenvalues"
+      },
+      "barrier": "0.2*x1**2 + 0.2*x1*x2 + x2**2 - 2.8",
+      "template_type": "llm_generated"
+    }
+  ]
+}

@@ -200,7 +200,7 @@ def _verify_initial_condition_z3_with_retry(barrier_z3, z3_vars: Dict, initial_s
             solver.add(barrier_z3 > 0)
             
             # Check satisfiability with timeout
-            solver.set("timeout", 30000)
+            solver.set("timeout", 120000)
             result = solver.check()
             
             if result == z3.unsat:
