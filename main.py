@@ -122,10 +122,7 @@ class BarrierDataset:
                 # 3. Linearity (linear vs nonlinear barriers are completely different)
                 'linearity': self._get_linearity(dynamics),
                 
-                # 4. Coupling (decoupled vs coupled systems have very different dynamics)
-                'coupling': self._get_coupling_type(dynamics),
-                
-                # 5. Set Topology (ball vs box vs complement need different barrier approaches)
+                # 4. Set Topology (ball vs box vs complement need different barrier approaches)
                 'set_topology': self._get_set_topology(initial_set, unsafe_set)
             }
             
@@ -158,34 +155,6 @@ class BarrierDataset:
         else:
             return 'unknown'
 
-    def _get_coupling_type(self, dynamics: str) -> str:
-        """Decoupled vs coupled - fundamentally affects barrier design"""
-        equations = dynamics.split(',')
-        
-        # Check if dx1/dt only contains x1, dx2/dt only contains x2, etc.
-        is_decoupled = True
-        
-        for eq in equations:
-            eq = eq.strip()
-            if 'dx1/dt' in eq or 'x1[k+1]' in eq:
-                # Should only contain x1
-                if any(f'x{i}' in eq.replace('dx1/dt', '').replace('x1[k+1]', '') for i in range(2, 10)):
-                    is_decoupled = False
-                    break
-            elif 'dx2/dt' in eq or 'x2[k+1]' in eq:
-                # Should only contain x2  
-                if any(f'x{i}' in eq.replace('dx2/dt', '').replace('x2[k+1]', '') for i in [1] + list(range(3, 10))):
-                    is_decoupled = False
-                    break
-            elif 'dx3/dt' in eq or 'x3[k+1]' in eq:
-                # Should only contain x3
-                if any(f'x{i}' in eq.replace('dx3/dt', '').replace('x3[k+1]', '') for i in [1, 2] + list(range(4, 10))):
-                    is_decoupled = False
-                    break
-            # Continue pattern for higher dimensions...
-        
-        return 'decoupled' if is_decoupled else 'coupled'
-
     def _get_set_topology(self, initial_set: Dict, unsafe_set: Dict) -> str:
         """Set topology affects barrier shape requirements"""
         init_type = initial_set.get('type', 'unknown')
@@ -210,10 +179,7 @@ class BarrierDataset:
             # 3. Same linearity (linear vs nonlinear barriers fundamentally different)
             features1.get('linearity') == features2.get('linearity'),
             
-            # 4. Same coupling type (decoupled vs coupled have very different dynamics)  
-            features1.get('coupling') == features2.get('coupling'),
-            
-            # 5. Compatible topology (some set combinations are impossible)
+            # 4. Compatible topology (some set combinations are impossible)
             self._topology_compatible(features1.get('set_topology'), features2.get('set_topology'))
         ]
         
@@ -222,8 +188,7 @@ class BarrierDataset:
         
         if not is_compatible:
             print(f"    Incompatible: dim:{critical_checks[0]} time:{critical_checks[1]} "
-                  f"linear:{critical_checks[2]} coupling:{critical_checks[3]} "
-                  f"topology:{critical_checks[4]}")
+                  f"linear:{critical_checks[2]} topology:{critical_checks[3]}")
         
         return is_compatible
 
