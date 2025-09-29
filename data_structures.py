@@ -259,106 +259,6 @@ def generate_samples_for_barrier_validation(problem: Dict[str, Any], num_samples
     }
 
 
-def validate_barrier_on_samples(barrier_expr: str, problem: Dict[str, Any], samples: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Validate barrier certificate on samples using k=0 simple validation methodology
-    """
-    try:
-        print(f"DEBUG: Simple barrier validation on samples with expression: {barrier_expr}")
-        
-        unified_samples = samples['unified_samples']
-        barrier_info = _parse_barrier_expression_simple(barrier_expr)
-        
-        # Check conditions on samples
-        condition_1_violations = 0
-        condition_2_violations = 0  
-        condition_3_violations = 0
-        
-        condition_1_counterexamples = []
-        condition_2_counterexamples = []
-        condition_3_counterexamples = []
-
-        tolerance = 1e-6
-        
-        for sample in unified_samples:
-            sample_point = sample['point']
-            trajectory = sample['trajectory']
-            
-            barrier_value = _evaluate_barrier_simple(barrier_info, sample_point)
-            
-            # Condition 1: B(x) ≤ 0 for x ∈ X₀
-            if sample['in_initial_set']:
-                if barrier_value > tolerance:
-                    condition_1_violations += 1
-                    condition_1_counterexamples.append({
-                        'point': sample_point,
-                        'barrier_value': barrier_value,
-                        'violation': barrier_value,
-                    })
-            
-            # Condition 2: B(x) > 0 for x ∈ Xu
-            if sample['in_unsafe_set']:
-                if barrier_value <= tolerance:
-                    condition_2_violations += 1
-                    condition_2_counterexamples.append({
-                        'point': sample_point,
-                        'barrier_value': barrier_value,
-                        'violation': -barrier_value,
-                    })
-            
-            # Condition 3: Check dynamics condition ∇B(x)·f(x) < 0
-            if len(trajectory) >= 2:
-                x_point = trajectory[0]
-                next_point = trajectory[1]
-                
-                barrier_x = _evaluate_barrier_simple(barrier_info, x_point)
-                barrier_next = _evaluate_barrier_simple(barrier_info, next_point)
-                
-                # For standard barriers: B(f(x)) - B(x) ≤ 0
-                dynamics_violation = barrier_next - barrier_x
-                if dynamics_violation > tolerance:
-                    condition_3_violations += 1
-                    condition_3_counterexamples.append({
-                        'trajectory': trajectory,
-                        'barrier_x': barrier_x,
-                        'barrier_next': barrier_next,
-                        'violation': dynamics_violation,
-                    })
-        
-        # Determine satisfaction
-        condition_1_satisfied = condition_1_violations == 0
-        condition_2_satisfied = condition_2_violations == 0
-        condition_3_satisfied = condition_3_violations == 0
-        
-        conditions_satisfied = [condition_1_satisfied, condition_2_satisfied, condition_3_satisfied]
-        score = sum(conditions_satisfied)
-        confidence = 0.99 if score == 3 else (score / 3.0) * 0.8
-        
-        print(f"DEBUG: Sample-based validation results:")
-        print(f"DEBUG:   Condition 1 violations: {condition_1_violations}")
-        print(f"DEBUG:   Condition 2 violations: {condition_2_violations}")
-        print(f"DEBUG:   Condition 3 violations: {condition_3_violations}")
-        print(f"DEBUG:   Score: {score}/3")
-        
-        return {
-            'success': True,
-            'conditions_satisfied': conditions_satisfied,
-            'score': score,
-            'confidence': confidence,
-            'counterexamples': {
-                'condition_1': condition_1_counterexamples[:5],  # Top 5 worst
-                'condition_2': condition_2_counterexamples[:5],
-                'condition_3': condition_3_counterexamples[:5]
-            },
-            'violation_counts': [condition_1_violations, condition_2_violations, condition_3_violations]
-        }
-        
-    except Exception as e:
-        print(f"ERROR: Sample-based validation failed: {e}")
-        return {
-            'success': False,
-            'error': str(e)
-        }
 
 
 def _define_uncertainty_set_for_validation(problem: Dict[str, Any]) -> Dict[str, Any]:
@@ -421,54 +321,53 @@ def _define_uncertainty_set_for_validation(problem: Dict[str, Any]) -> Dict[str,
             raise ValueError(f"Unsupported unsafe set type for complement: {unsafe_set.get('type')}")
     
     else:
-        # For non-complement cases, use union
-        if initial_set.get('type') == 'bounds' and unsafe_set.get('type') == 'bounds':
+        # For non-complement cases, create a bounding box that contains both sets
+        init_type = initial_set.get('type')
+        unsafe_type = unsafe_set.get('type')
+        
+        # Get bounds for initial set
+        if init_type == 'bounds':
             init_bounds = initial_set.get('bounds', [])
-            unsafe_bounds = unsafe_set.get('bounds', [])
-            
-            if len(init_bounds) != len(unsafe_bounds):
-                print(f"ERROR: Dimension mismatch - initial: {len(init_bounds)}, unsafe: {len(unsafe_bounds)}")
-                raise ValueError(f"Bounds dimension mismatch: {len(init_bounds)} vs {len(unsafe_bounds)}")
-            
-            union_bounds = []
-            for i, (init_bound, unsafe_bound) in enumerate(zip(init_bounds, unsafe_bounds)):
-                if len(init_bound) < 2 or len(unsafe_bound) < 2:
-                    print(f"ERROR: Invalid bound format at index {i}: init={init_bound}, unsafe={unsafe_bound}")
-                    raise ValueError(f"Invalid bound format at dimension {i}")
-                
-                union_low = min(init_bound[0], unsafe_bound[0])
-                union_high = max(init_bound[1], unsafe_bound[1])
-                union_bounds.append([union_low, union_high])
-                
-            uncertainty_set = {
-                'type': 'bounds',
-                'bounds': union_bounds,
-                'description': 'uncertainty_set_X_union'
-            }
-            
-            print(f"DEBUG: Union uncertainty set X: {union_bounds}")
-            
-        elif initial_set.get('type') == 'ball' and unsafe_set.get('type') == 'ball':
-            init_center = initial_set.get('center', [0, 0])
-            init_radius = initial_set.get('radius', 1.0)
-            unsafe_center = unsafe_set.get('center', [0, 0])
-            unsafe_radius = unsafe_set.get('radius', 3.0)
-            
-            max_radius = max(init_radius, unsafe_radius) * 1.1
-            uncertainty_set = {
-                'type': 'ball',
-                'center': init_center,  # Assume same center
-                'radius': max_radius,
-                'description': 'uncertainty_set_X_union'
-            }
-            
-            print(f"DEBUG: Ball union uncertainty set X: center {init_center}, radius {max_radius}")
+        elif init_type == 'ball':
+            center = initial_set.get('center', [0, 0])
+            radius = initial_set.get('radius', 1.0)
+            init_bounds = [[c - radius * 1.1, c + radius * 1.1] for c in center]
         else:
-            print(f"ERROR: Mixed set types not supported: initial={initial_set.get('type')}, unsafe={unsafe_set.get('type')}")
-            raise ValueError(f"Mixed set types not supported")
+            init_bounds = [[-1, 1], [-1, 1]]  # Default
+        
+        # Get bounds for unsafe set
+        if unsafe_type == 'bounds':
+            unsafe_bounds = unsafe_set.get('bounds', [])
+        elif unsafe_type == 'ball':
+            center = unsafe_set.get('center', [0, 0])
+            radius = unsafe_set.get('radius', 1.0)
+            unsafe_bounds = [[c - radius * 1.1, c + radius * 1.1] for c in center]
+        else:
+            unsafe_bounds = [[-1, 1], [-1, 1]]  # Default
+        
+        # Ensure same dimension
+        max_dim = max(len(init_bounds), len(unsafe_bounds))
+        while len(init_bounds) < max_dim:
+            init_bounds.append([-1, 1])
+        while len(unsafe_bounds) < max_dim:
+            unsafe_bounds.append([-1, 1])
+        
+        # Create union bounds
+        union_bounds = []
+        for init_bound, unsafe_bound in zip(init_bounds, unsafe_bounds):
+            union_low = min(init_bound[0], unsafe_bound[0])
+            union_high = max(init_bound[1], unsafe_bound[1])
+            union_bounds.append([union_low, union_high])
+        
+        uncertainty_set = {
+            'type': 'bounds',
+            'bounds': union_bounds,
+            'description': 'uncertainty_set_X_union'
+        }
+        
+        print(f"DEBUG: Union uncertainty set X: {union_bounds}")
     
     return uncertainty_set
-
 
 def _sample_from_set(set_description: Dict[str, Any]) -> List[float]:
     """Sample a point from the given set"""
@@ -653,14 +552,216 @@ def _apply_dynamics_step(point: List[float], dynamics: str) -> List[float]:
         return point  # Fallback to same point
 
 
+def validate_barrier_on_samples(barrier_expr: str, problem: Dict[str, Any], samples: Dict[str, Any], controller_expr: str = None) -> Dict[str, Any]:
+    """
+    Validate barrier certificate on samples using k=0 simple validation methodology
+    Now supports controller expressions
+    """
+    try:
+        print(f"DEBUG: Simple barrier validation on samples with expression: {barrier_expr}")
+        if controller_expr:
+            print(f"DEBUG: Controller expression provided: {controller_expr}")
+        
+        # Handle controller case by substituting into dynamics
+        working_problem = problem.copy()
+        if controller_expr:
+            controller_dict = _parse_controller_expressions_for_samples(controller_expr, problem)
+            if controller_dict:
+                original_dynamics = problem['dynamics']
+                closed_loop_dynamics = _substitute_controller_into_dynamics_for_samples(original_dynamics, controller_dict)
+                working_problem['dynamics'] = closed_loop_dynamics
+                print(f"DEBUG: Using closed-loop dynamics: {closed_loop_dynamics}")
+            else:
+                print(f"DEBUG: Failed to parse controller, using original dynamics")
+        
+        unified_samples = samples['unified_samples']
+        barrier_info = _parse_barrier_expression_simple(barrier_expr)
+        
+        # Check conditions on samples
+        condition_1_violations = 0
+        condition_2_violations = 0  
+        condition_3_violations = 0
+        
+        condition_1_counterexamples = []
+        condition_2_counterexamples = []
+        condition_3_counterexamples = []
+
+        tolerance = 1e-6
+        
+        for sample in unified_samples:
+            sample_point = sample['point']
+            # Re-simulate trajectory with potentially modified dynamics
+            trajectory = _simulate_one_step(sample_point, working_problem['dynamics'])
+            
+            barrier_value = _evaluate_barrier_simple(barrier_info, sample_point)
+            
+            # Condition 1: B(x) ≤ 0 for x ∈ X₀
+            if sample['in_initial_set']:
+                if barrier_value > tolerance:
+                    condition_1_violations += 1
+                    condition_1_counterexamples.append({
+                        'point': sample_point,
+                        'barrier_value': barrier_value,
+                        'violation': barrier_value,
+                    })
+            
+            # Condition 2: B(x) > 0 for x ∈ Xu
+            if sample['in_unsafe_set']:
+                if barrier_value <= tolerance:
+                    condition_2_violations += 1
+                    condition_2_counterexamples.append({
+                        'point': sample_point,
+                        'barrier_value': barrier_value,
+                        'violation': -barrier_value,
+                    })
+            
+            # Condition 3: Check dynamics condition ∇B(x)·f(x) < 0
+            if len(trajectory) >= 2:
+                x_point = trajectory[0]
+                next_point = trajectory[1]
+                
+                barrier_x = _evaluate_barrier_simple(barrier_info, x_point)
+                barrier_next = _evaluate_barrier_simple(barrier_info, next_point)
+                
+                # For standard barriers: B(f(x)) - B(x) ≤ 0
+                dynamics_violation = barrier_next - barrier_x
+                if dynamics_violation > tolerance:
+                    condition_3_violations += 1
+                    condition_3_counterexamples.append({
+                        'trajectory': trajectory,
+                        'barrier_x': barrier_x,
+                        'barrier_next': barrier_next,
+                        'violation': dynamics_violation,
+                    })
+        
+        # Determine satisfaction
+        condition_1_satisfied = condition_1_violations == 0
+        condition_2_satisfied = condition_2_violations == 0
+        condition_3_satisfied = condition_3_violations == 0
+        
+        conditions_satisfied = [condition_1_satisfied, condition_2_satisfied, condition_3_satisfied]
+        score = sum(conditions_satisfied)
+        confidence = 0.99 if score == 3 else (score / 3.0) * 0.8
+        
+        print(f"DEBUG: Sample-based validation results:")
+        print(f"DEBUG:   Condition 1 violations: {condition_1_violations}")
+        print(f"DEBUG:   Condition 2 violations: {condition_2_violations}")
+        print(f"DEBUG:   Condition 3 violations: {condition_3_violations}")
+        print(f"DEBUG:   Score: {score}/3")
+        
+        return {
+            'success': True,
+            'conditions_satisfied': conditions_satisfied,
+            'score': score,
+            'confidence': confidence,
+            'counterexamples': {
+                'condition_1': condition_1_counterexamples[:5],  # Top 5 worst
+                'condition_2': condition_2_counterexamples[:5],
+                'condition_3': condition_3_counterexamples[:5]
+            },
+            'violation_counts': [condition_1_violations, condition_2_violations, condition_3_violations]
+        }
+        
+    except Exception as e:
+        print(f"ERROR: Sample-based validation failed: {e}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+
+def _parse_controller_expressions_for_samples(controller_expr: str, problem: Dict[str, Any]) -> Dict[str, str]:
+    """Parse controller expression string into dictionary of parameter -> expression mappings"""
+    try:
+        controller_dict = {}
+        controller_params = [p.strip() for p in problem.get('controller_parameters', '').split(',') if p.strip()]
+        
+        if not controller_params:
+            return {}
+        
+        # Handle comma-separated controller expressions
+        expressions = [eq.strip() for eq in controller_expr.split(',') if eq.strip()]
+        
+        for i, expr in enumerate(expressions):
+            expr = expr.strip()
+            if '=' in expr:
+                # Format: param = expression
+                param_name, param_expr = expr.split('=', 1)
+                param_name = param_name.strip()
+                param_expr = param_expr.strip()
+            else:
+                # Direct expression, use parameter name
+                if i < len(controller_params):
+                    param_name = controller_params[i]
+                    param_expr = expr
+                else:
+                    continue
+            
+            # Clean up the expression
+            param_expr = re.sub(r'\s+', ' ', param_expr)
+            param_expr = re.sub(r'\s*\+\s*', ' + ', param_expr)
+            param_expr = re.sub(r'\s*-\s*', ' - ', param_expr)
+            param_expr = re.sub(r'\s*\*\s*', '*', param_expr)
+            
+            controller_dict[param_name] = param_expr
+            
+        return controller_dict
+        
+    except Exception as e:
+        print(f"ERROR: Failed to parse controller expressions: {e}")
+        return {}
+
+
+def _substitute_controller_into_dynamics_for_samples(dynamics_str: str, controller_dict: Dict[str, str]) -> str:
+    """Substitute controller expressions into dynamics string to create closed-loop dynamics"""
+    try:
+        if not controller_dict:
+            print(f"DEBUG: Empty controller dictionary, returning original dynamics")
+            return dynamics_str
+            
+        # Split dynamics into individual equations
+        equations = [eq.strip() for eq in dynamics_str.split(',')]
+        
+        substituted_equations = []
+        
+        for eq in equations:
+            eq = eq.strip()
+            
+            # Substitute each controller parameter
+            for param_name, param_expr in controller_dict.items():
+                # Use word boundaries to avoid partial matches
+                import re
+                pattern = r'\b' + re.escape(param_name) + r'\b'
+                
+                # Wrap controller expression in parentheses for safety
+                replacement = f'({param_expr})'
+                
+                eq = re.sub(pattern, replacement, eq)
+            
+            substituted_equations.append(eq)
+        
+        # Join back into single dynamics string
+        closed_loop_dynamics = ', '.join(substituted_equations)
+        
+        print(f"DEBUG: Original dynamics: {dynamics_str}")
+        print(f"DEBUG: Controller: {controller_dict}")
+        print(f"DEBUG: Closed-loop dynamics: {closed_loop_dynamics}")
+        
+        return closed_loop_dynamics
+        
+    except Exception as e:
+        print(f"ERROR: Failed to substitute controller into dynamics: {e}")
+        return dynamics_str  # Return original as fallback
+
+
 def _evaluate_dynamics_at_point(point: List[float], dynamics: str) -> List[float]:
-    """Evaluate dynamics at a given point - simplified version"""
+    """Evaluate dynamics at a given point - simplified version with controller support"""
     try:
         # Parse dynamics string and evaluate
         equations = [eq.strip() for eq in dynamics.split(',')]
         derivatives = []
         
-        # Create variable mapping
+        # Create variable mapping for up to 10 variables
         var_map = {f'x{i+1}': point[i] if i < len(point) else 0.0 for i in range(10)}
         
         for eq in equations:
@@ -677,13 +778,15 @@ def _evaluate_dynamics_at_point(point: List[float], dynamics: str) -> List[float
                     'abs': abs,
                     'max': max,
                     'min': min,
-                    'pow': pow
+                    'pow': pow,
+                    'tanh': math.tanh
                 })
                 
                 try:
                     result = eval(rhs, safe_dict)
                     derivatives.append(float(result))
-                except:
+                except Exception as eval_error:
+                    print(f"DEBUG: Eval failed for '{rhs}': {eval_error}")
                     derivatives.append(0.0)  # Fallback
         
         # Pad with zeros if needed
@@ -694,7 +797,6 @@ def _evaluate_dynamics_at_point(point: List[float], dynamics: str) -> List[float
     except Exception as e:
         print(f"ERROR: Dynamics evaluation failed: {e}")
         return [0.0] * len(point)
-
 
 def _parse_barrier_expression_simple(barrier_expr: str) -> Dict[str, Any]:
     """Simple barrier parsing for sample validation"""
