@@ -1150,23 +1150,6 @@ class SimplifiedBarrierSynthesis:
 
 # Test
 if __name__ == "__main__":
-    
-    # test_problem = {
-    #     'dynamics': 'dx1/dt = x2 + u0, dx2/dt = -0.3*x1 - 0.2*(1 + cos(x1))*x2 - 0.1*x1**3 + u1',
-    #     'initial_set': {
-    #         'type': 'bounds',
-    #         'bounds': [[-0.5, 0.5], [-0.6, 0.6]]
-    #     },
-    #     'unsafe_set': {
-    #         'type': 'ball',
-    #         'radius': 1.0,
-    #         'center': [2, 2],
-    #         'complement': False
-    #     },
-    #     'controller_parameters': 'u0, u1',
-    #     'description': "State-dependent trigonometric damping"
-    # }
-
     test_problem = {
         "dynamics": "dx1/dt = -0.4*x1 + 0.1*x2, dx2/dt = -0.5*x2 + 0.08*x3, dx3/dt = -0.6*x3 + 0.05*x1, dx4/dt = -0.3*x4",
         "initial_set": {
@@ -1198,10 +1181,10 @@ if __name__ == "__main__":
     print("="*60)
     
     if result['success']:
-        print(f"✅ SUCCESS: {result['barrier_certificate']}")
+        print(f" SUCCESS: {result['barrier_certificate']}")
         print(f"Found in iteration: {result['iteration_found']}")
     else:
-        print(f"❌ FAILED - Best score: {result.get('best_score', 0)}/3")
+        print(f" FAILED - Best score: {result.get('best_score', 0)}/3")
         if result.get('best_barrier'):
             print(f"Best attempt: {result['best_barrier']}")
     
