@@ -1162,8 +1162,7 @@ if __name__ == "__main__":
           "radius": 2.5,
           "center": [0, 0, 0, 0],
           "complement": True
-        },
-        "description": "4D with weak coupling between x1-x2-x3 chain"
+        }
       }
     
     api_key = "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"
