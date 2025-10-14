@@ -523,6 +523,7 @@ class SimplifiedBarrierSynthesis:
 
     Analyze carefully but be concise. Give precise answer without long explanations.
 
+    Format your response as (don't make it bold):
     {barrier_controller_format}"""
 
         print("\n" + "="*80)
@@ -690,6 +691,7 @@ class SimplifiedBarrierSynthesis:
 
     Analyze carefully but be concise. Give precise answer without long explanations.
 
+    Format your response as (don't make it bold):
     {response_format}"""
 
         print("\n" + "="*80)
