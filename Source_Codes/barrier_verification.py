@@ -150,12 +150,15 @@ def _sympy_to_z3_with_retry(sympy_expr: sp.Expr, z3_vars: Dict):
             def _sin_(x):
                 x2 = x * x
                 x3 = x2 * x
-                return x - x3/6
+                x5 = x3 * x2
+                x7 = x5 * x2
+                return x - x3/6 + x5/120 - x7/5040
             
             def _cos_(x):
                 x2 = x * x
                 x4 = x2 * x2
-                return 1 - x2/2 + x4/24
+                x6 = x4 * x2 
+                return 1 - x2/2 + x4/24 - x6/720
             
             # Define exponential function for Z3
             def _exp_(x):
