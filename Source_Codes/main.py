@@ -70,7 +70,7 @@ class BarrierDataset:
         except Exception as e:
             logger.error(f"Failed to save: {e}")
 
-    def find_most_similar(self, target_problem: Dict[str, Any], threshold: float = 0.7) -> Tuple[Optional[Dict], float]:
+    def find_most_similar(self, target_problem: Dict[str, Any]) -> Optional[Dict]:
         """Critical filter approach: Hard filter on fundamental differences + LLM selection"""
         
         print(f"\nCritical Filter: Starting with {len(self.test_cases)} candidates")
@@ -79,7 +79,7 @@ class BarrierDataset:
         target_features = self._extract_critical_features(target_problem)
         if not target_features:
             print("Failed to extract target features")
-            return None, 0.0
+            return None
         
         print(f"Target features: {target_features}")
         
@@ -97,21 +97,21 @@ class BarrierDataset:
         
         if not compatible_candidates:
             print("No compatible candidates found")
-            return None, 0.0
+            return None
         
         if len(compatible_candidates) == 1:
             print("Single compatible candidate - using directly")
-            return compatible_candidates[0], 0.95
+            return compatible_candidates[0]
         
         # Step 2: LLM selection on remaining candidates
         print(f"Sending {len(compatible_candidates)} candidates to LLM for selection")
         best_candidate = self._llm_select_from_compatible(target_problem, compatible_candidates)
         
         if best_candidate:
-            return best_candidate, 0.85
+            return best_candidate
         else:
             # Fallback to first compatible
-            return compatible_candidates[0], 0.75
+            return compatible_candidates[0]
 
     def _extract_critical_features(self, problem: Dict[str, Any]) -> Optional[Dict]:
         """Extract the absolutely critical features that determine barrier design approach"""
@@ -457,18 +457,28 @@ class SimplifiedBarrierSynthesis:
     def _get_template_and_barrier_from_llm(self, problem: Dict[str, Any], iteration: int, has_controller: bool = False):
         """Get template and barrier from LLM with optional controller support"""
         
+        dynamics = problem.get('dynamics', '')
+        is_discrete = '[k+1]' in dynamics or '[k]' in dynamics
+        system_type = "DISCRETE-TIME" if is_discrete else "CONTINUOUS-TIME"
+        
+        # Condition 3 varies by system type
+        if is_discrete:
+            condition_3_desc = "B(f(x)) - B(x) ≤ 0 for all x in the state space"
+        else:
+            condition_3_desc = "∇B(x)·f(x) < 0 on boundary"
+
         # Check for similar problems
         if iteration == 1:
-            similar_case, similarity = self.dataset.find_most_similar(problem)
+            similar_case = self.dataset.find_most_similar(problem)
             context = ""
-            if similar_case and similarity > 0.99:
+            if similar_case:
                 context = f"""Related problem found:
-    EXAMPLE: {similar_case['problem']}
-    B(x): {similar_case['barrier']}
+        EXAMPLE: {similar_case['problem']}
+        B(x): {similar_case['barrier']}
 
-    WARNING: This is just an example - your solution may be completely different NOT ONLY in terms of coefficients, BUT ALSO in format and structure. you may make mistakes, so do not consider this as a solution. Please don't copy it
+        WARNING: This is just an example - your solution may be completely different NOT ONLY in terms of coefficients, BUT ALSO in format and structure. you may make mistakes, so do not consider this as a solution. Please don't copy it
 
-    """
+        """
             else:
                 context = "No similar problems found. Analyze this problem fresh.\n\n"
         else:
@@ -478,53 +488,53 @@ class SimplifiedBarrierSynthesis:
         # Controller-aware prompts
         if has_controller:
             controller_explanation_1 = f"""
-    CONTROLLER SYNTHESIS: This system has control inputs {problem.get('controller_parameters')}. You need to design BOTH:
-    1. Barrier certificate B(x) 
-    2. Controller expressions for {problem.get('controller_parameters')}
+        CONTROLLER SYNTHESIS: This system has control inputs {problem.get('controller_parameters')}. You need to design BOTH:
+        1. Barrier certificate B(x) 
+        2. Controller expressions for {problem.get('controller_parameters')}
 
-    The controller u(x) will be substituted into dynamics to create closed-loop system.
-    """
+        The controller u(x) will be substituted into dynamics to create closed-loop system.
+        """
             controller_explanation_2 = """
-    Design both barrier certificate B(x) AND controller expressions that work together to satisfy all conditions.
+        Design both barrier certificate B(x) AND controller expressions that work together to satisfy all conditions.
 
-    CRITICAL: 
-    - Use ONLY real numbers in both barrier and controller expressions. No variables like 'c' or 'ε'. 
-    - Solve specifically for THIS problem with appropriate coefficients.
-    - Controller must be implementable with realistic actuators
-    - Ensure controller bounds are reasonable (avoid extremely large values)
-    """
+        CRITICAL: 
+        - Use ONLY real numbers in both barrier and controller expressions. No variables like 'c' or 'ε'. 
+        - Solve specifically for THIS problem with appropriate coefficients.
+        - Controller must be implementable with realistic actuators
+        - Ensure controller bounds are reasonable (avoid extremely large values)
+        """
             
             barrier_controller_format = """
-    BARRIER: [barrier expression with numbers only]
-    CONTROLLER: [controller expressions for each parameter, comma-separated]"""
+        BARRIER: [barrier expression with numbers only]
+        CONTROLLER: [controller expressions for each parameter, comma-separated]"""
         else:
             controller_explanation_1 = ""
             controller_explanation_2 = """
-    CRITICAL: Use ONLY real numbers in the barrier expression. No variables like 'c' or 'ε'. 
-    Solve specifically for THIS problem with appropriate coefficients.
-    """
+        CRITICAL: Use ONLY real numbers in the barrier expression. No variables like 'c' or 'ε'. 
+        Solve specifically for THIS problem with appropriate coefficients.
+        """
             
             barrier_controller_format = """
-    BARRIER: [expression with numbers only]"""
+        BARRIER: [expression with numbers only]"""
 
         prompt = f"""{context}Main Problem:
-    - Dynamics: {problem.get('dynamics')}
-    - Initial set: {problem.get('initial_set')}
-    - Unsafe set: {problem.get('unsafe_set')}
-    {controller_explanation_1}
-    Design a barrier certificate B(x) that satisfies:
-    1. B(x) ≤ 0 in initial set
-    2. B(x) > 0 in unsafe set  
-    3. ∇B·f < 0 on boundary
+        - Dynamics: {problem.get('dynamics')}
+        - Initial set: {problem.get('initial_set')}
+        - Unsafe set: {problem.get('unsafe_set')}
+        {controller_explanation_1}
+        Design a barrier certificate B(x) that satisfies:
+        1. B(x) ≤ 0 in initial set
+        2. B(x) > 0 in unsafe set  
+        3. {condition_3_desc}
 
-    {"Design a barrier certificate and controller that satisfy all 3 conditions. Be very careful - don't make it more complex than needed." if iteration == 1 else "Design barrier certificate and controller that satisfy all 3 conditions. Learn from previous failures. You can change structure of TEMPLATE if needed. In this step, the goal is to improve the structure of the templates, not refine the parameters." if has_controller else "Design a barrier certificate that satisfies all 3 conditions. Learn from previous failures. You can change structure of TEMPLATE if needed. In this step, the goal is to improve the structure of the templates, not refine the parameters."}
+        {"Design a barrier certificate and controller that satisfy all 3 conditions. Be very careful - don't make it more complex than needed." if iteration == 1 else "Design barrier certificate and controller that satisfy all 3 conditions. Learn from previous failures. You can change structure of TEMPLATE if needed. In this step, the goal is to improve the structure of the templates, not refine the parameters." if has_controller else "Design a barrier certificate that satisfies all 3 conditions. Learn from previous failures. You can change structure of TEMPLATE if needed. In this step, the goal is to improve the structure of the templates, not refine the parameters."}
 
-    {controller_explanation_2}
+        {controller_explanation_2}
 
-    Analyze carefully but be concise. Give precise answer without long explanations.
+        Analyze carefully but be concise. Give precise answer without long explanations.
 
-    Format your response as (don't make it bold):
-    {barrier_controller_format}"""
+        Format your response as (don't make it bold):
+        {barrier_controller_format}"""
 
         print("\n" + "="*80)
         print(f"TEMPLATE/BARRIER{'_CONTROLLER' if has_controller else ''} PROMPT (Iteration {iteration}):")
@@ -546,7 +556,7 @@ class SimplifiedBarrierSynthesis:
             print("="*80)
             print(content)
             print("="*80)
-            
+            # exit()
             if has_controller:
                 barrier_expr, controller_expr = self._extract_barrier_and_controller_from_response(content)
                 
@@ -614,6 +624,15 @@ class SimplifiedBarrierSynthesis:
                    iteration_refinements: List[Dict] = None, has_controller: bool = False,
                    original_controller: str = None, current_controller: str = None):
         """Refine barrier with optional controller based on failures"""
+
+        dynamics = problem.get('dynamics', '')
+        is_discrete = '[k+1]' in dynamics or '[k]' in dynamics
+        
+        # Condition 3 varies by system type
+        if is_discrete:
+            condition_3_desc = "B(f(x)) - B(x) ≤ 0 for all x"
+        else:
+            condition_3_desc = "∇B(x)·f(x) < 0 on boundary"
         
         failed_conditions = self._get_failed_conditions(verification)
         
@@ -687,7 +706,7 @@ class SimplifiedBarrierSynthesis:
     Requirements:
     1. B(x) ≤ 0 in initial set
     2. B(x) > 0 in unsafe set  
-    3. ∇B(x)·f(x) < 0 on boundary
+    3. {condition_3_desc}
 
     Analyze carefully but be concise. Give precise answer without long explanations.
 
@@ -957,11 +976,16 @@ class SimplifiedBarrierSynthesis:
             r'B\(x\)\s*=\s*(.+?)(?:\n|$)'
         ]
         
+        # controller_patterns = [
+        #     r'CONTROLLER\s*:\s*(.+?)(?:\n|$)',
+        #     r'CONTROL\s*:\s*(.+?)(?:\n|$)',
+        #     r'u\s*=\s*(.+?)(?:\n|$)'
+        # ]
         controller_patterns = [
-            r'CONTROLLER\s*:\s*(.+?)(?:\n|$)',
-            r'CONTROL\s*:\s*(.+?)(?:\n|$)',
-            r'u\s*=\s*(.+?)(?:\n|$)'
-        ]
+        r'CONTROLLER\s*:\s*([\s\S]+?)(?:\n\n|\n[A-Z]|$)',  # Match until double newline or capital letter line
+        r'CONTROL\s*:\s*([\s\S]+?)(?:\n\n|\n[A-Z]|$)',
+        # r'u\s*=\s*(.+?)(?:\n|$)'
+    ]
         
         barrier_expr = None
         controller_expr = None
@@ -996,9 +1020,13 @@ class SimplifiedBarrierSynthesis:
             r'BARRIER\s*:\s*(.+?)(?:\n|$)',
         ]
         
+        # controller_patterns = [
+        #     r'REFINED_CONTROLLER\s*:\s*(.+?)(?:\n|$)',
+        #     r'CONTROLLER\s*:\s*(.+?)(?:\n|$)',
+        # ]
         controller_patterns = [
-            r'REFINED_CONTROLLER\s*:\s*(.+?)(?:\n|$)',
-            r'CONTROLLER\s*:\s*(.+?)(?:\n|$)',
+        r'REFINED_CONTROLLER\s*:\s*([\s\S]+?)(?:\n\n|\n[A-Z]|$)',
+        r'CONTROLLER\s*:\s*([\s\S]+?)(?:\n\n|\n[A-Z]|$)',
         ]
         
         barrier_expr = None
@@ -1033,6 +1061,10 @@ class SimplifiedBarrierSynthesis:
         
         # Basic cleaning
         expr = expr.replace('`', '').strip()
+
+        # Discrete systems use x[k] notation, but for evaluation we just need x
+        expr = re.sub(r'\[k\+1\]', '', expr)  # Remove [k+1]
+        expr = re.sub(r'\[k\]', '', expr)      # Remove [k]
         
         # Remove prefixes
         expr = re.sub(r'^.*?CONTROLLER.*?:\s*', '', expr, flags=re.IGNORECASE)
@@ -1101,7 +1133,11 @@ class SimplifiedBarrierSynthesis:
             if not controller_dict:
                 logger.warning("Empty controller dictionary, returning original dynamics")
                 return dynamics_str
-                
+            
+            # For evaluation purposes, we only need the functional form f(x), not f(x[k])
+            # dynamics_str = re.sub(r'\[k\+1\]', '', dynamics_str)  # Remove [k+1]
+            # dynamics_str = re.sub(r'\[k\]', '', dynamics_str)      # Remove [k]
+
             # Split dynamics into individual equations
             equations = [eq.strip() for eq in dynamics_str.split(',')]
             
@@ -1152,21 +1188,236 @@ class SimplifiedBarrierSynthesis:
 
 # Test
 if __name__ == "__main__":
-    test_problem = {
-        "dynamics": "dx1/dt = -0.4*x1 + 0.1*x2, dx2/dt = -0.5*x2 + 0.08*x3, dx3/dt = -0.6*x3 + 0.05*x1, dx4/dt = -0.3*x4",
+
+    #================================ Continuous
+    # test_problem = {
+    #     "dynamics": "dx1/dt = x2*(x3 - 1 + x1**2) + 0.1*x1 + u0, dx2/dt = x1*(3*x3 + 1 - x1**2) + 0.1*x2 + u1, dx3/dt = -2*x3*(0.5 + x1*x2) + u2, dx4/dt = -0.5*x4 + u3",
+    #     "initial_set": {
+    #       "type": "ball",
+    #       "radius": 0.1,
+    #       "center": [0, 0, 0, 0]
+    #     },
+    #     "unsafe_set": {
+    #       "type": "ball",
+    #       "radius": 8.0,
+    #       "center": [0, 0, 0, 0],
+    #       "complement": True
+    #     },
+    #     "controller_parameters": "u0, u1, u2, u3"
+    #   }
+
+    # test_problem = {
+    #     "dynamics": "dx1/dt = 2*(x2 - x1) + 0.7*x4 + u0, dx2/dt = 1.5*x1 - x2 - x1*x3 + u1, dx3/dt = x1*x2 - 1.5*x3 + u2, dx4/dt = -x1 - 1.5*x4 + u3",
+    #     "initial_set": {
+    #       "type": "ball",
+    #       "radius": 0.2,
+    #       "center": [0, 0, 0, 0]
+    #     },
+    #     "unsafe_set": {
+    #       "type": "ball",
+    #       "radius": 4.0,
+    #       "center": [0, 0, 0, 0],
+    #       "complement": True
+    #     },
+    #     "controller_parameters": "u0, u1, u2, u3"
+    #   }
+
+    # test_problem = {
+    #     "dynamics": "dx1/dt = x2 + u0, dx2/dt = -x1 + x2*x3 + u1, dx3/dt = 1 - x2**2 + u2",
+    #     "initial_set": {
+    #       "type": "ball",
+    #       "radius": 0.4,
+    #       "center": [0, 0, 0]
+    #     },
+    #     "unsafe_set": {
+    #       "type": "ball",
+    #       "radius": 3.0,
+    #       "center": [0, 0, 0],
+    #       "complement": True
+    #     },
+    #     "controller_parameters": "u0, u1, u2"
+    #   }
+
+    # test_problem = {
+    #     "dynamics": "dx1/dt = -0.5*x1 + x2*x3 + u0, dx2/dt = -0.5*x2 + x3*(x1 - 1) + u1, dx3/dt = 1 - x1*x2 + u2",
+    #     "initial_set": {
+    #       "type": "ball",
+    #       "radius": 0.3,
+    #       "center": [0, 0, 0]
+    #     },
+    #     "unsafe_set": {
+    #       "type": "ball",
+    #       "radius": 3.5,
+    #       "center": [0, 0, 0],
+    #       "complement": True
+    #     },
+    #     "controller_parameters": "u0, u1, u2"
+    #   }
+
+    # test_problem = {
+    #     "dynamics": "dx1/dt = -0.1*(x1 - 20) + 0.05*(x2 - x1) + u0, dx2/dt = -0.08*(x2 - 18) + 0.03*(x1 - x2) + u1",
+    #     "initial_set": {
+    #       "type": "bounds",
+    #       "bounds": [[19.5, 20.5], [17.8, 18.2]]
+    #     },
+    #     "unsafe_set": {
+    #       "type": "bounds",
+    #       "bounds": [[25, 30], [25, 30]],
+    #       "complement": False
+    #     },
+    #     "controller_parameters": "u0, u1"
+    #   }
+
+
+    # test_problem = {
+    #     "dynamics": "dx1/dt = x2 + u0, dx2/dt = -0.6*x1 - 0.1*x2 + 0.05*x3 + u1, dx3/dt = x4 + u2, dx4/dt = -0.8*x3 - 0.15*x4 + 0.05*x1 + u3",
+    #     "initial_set": {
+    #       "type": "ball",
+    #       "radius": 0.6,
+    #       "center": [0, 0, 0, 0]
+    #     },
+    #     "unsafe_set": {
+    #       "type": "ball",
+    #       "radius": 3.5,
+    #       "center": [0, 0, 0, 0],
+    #       "complement": True
+    #     },
+    #     "controller_parameters": "u0, u1, u2, u3"
+    #   }
+
+    # test_problem = {
+    #     "dynamics": "dx1/dt = -0.2*x1 + 0.3*x2*sin(x1) + u0, dx2/dt = -0.3*x2 + 0.2*x1*cos(x2) - 0.1*x1**2*x2 + u1",
+    #     "initial_set": {
+    #       "type": "ball",
+    #       "radius": 0.5,
+    #       "center": [0, 0]
+    #     },
+    #     "unsafe_set": {
+    #       "type": "ball",
+    #       "radius": 3.5,
+    #       "center": [0, 0],
+    #       "complement": True
+    #     },
+    #     "controller_parameters": "u0, u1"
+    #   }
+
+    #================================ Discrete
+    # test_problem = { # x1**2 + x2**2 - 4.0
+    #     "dynamics": "x1[k+1] = 0.9*x1[k], x2[k+1] = 0.8*x2[k]",
+    #     "initial_set": {
+    #       "type": "ball",
+    #       "radius": 1.0,
+    #       "center": [0, 0]
+    #     },
+    #     "unsafe_set": {
+    #       "type": "ball",
+    #       "radius": 3.0,
+    #       "center": [0, 0],
+    #       "complement": True
+    #     }
+    #   }
+
+    # test_problem = { # x1**2 + x2**2 - 1.5
+    #     "dynamics": "x1[k+1] = 0.95*x1[k] + 0.1*x2[k], x2[k+1] = -0.1*x1[k] + 0.95*x2[k]",
+    #     "initial_set": {
+    #         "type": "ball",
+    #         "radius": 0.5,
+    #         "center": [0, 0]
+    #     },
+    #     "unsafe_set": {
+    #         "type": "ball",
+    #         "radius": 2.0,
+    #         "center": [0, 0],
+    #         "complement": True
+    #     }
+    # }
+
+    test_problem = { #x1**2 + x2**2 - 1.5 # {'u0': ' - 1.2*x1 - 0.15*x1**2 - 0.1*x2', 'u1': ' - 1.0*x2 - 0.15*x1*x2'}
+        "dynamics": "x1[k+1] = 0.8*x1[k] + 0.1*x1[k]**2 + 0.05*x2[k] + u0[k], x2[k+1] = 0.7*x2[k] + 0.1*x1[k]*x2[k] + u1[k]",
         "initial_set": {
-          "type": "ball",
-          "radius": 0.7,
-          "center": [0, 0, 0, 0]
+          "type": "bounds",
+          "bounds": [[-0.3, 0.3], [-0.2, 0.4]]
         },
         "unsafe_set": {
           "type": "ball",
           "radius": 2.5,
-          "center": [0, 0, 0, 0],
+          "center": [0, 0],
           "complement": True
-        }
+        },
+        "controller_parameters": "u0, u1"
       }
-    
+
+    # test_problem = { #  x1 + x2 - 0.9 # -x1*(2.2 - 3.2*x1) - 0.1, -x2*(1.8 - 2.8*x2) - 0.1
+    #     "dynamics": "x1[k+1] = x1[k]*(3.2 - 3.2*x1[k]) + u0[k], x2[k+1] = x2[k]*(2.8 - 2.8*x2[k]) + u1[k]",
+    #     "initial_set": {
+    #       "type": "bounds",
+    #       "bounds": [[0.1, 0.3], [0.2, 0.4]]
+    #     },
+    #     "unsafe_set": {
+    #       "type": "bounds",
+    #       "bounds": [[0.8, 1.0], [0.8, 1.0]],
+    #       "complement": False
+    #     },
+    #     "controller_parameters": "u0, u1"
+    #   }
+
+    # test_problem = { # solved x1**2 + x2**2 - 1.0 # -1 + 1.4*x1**2 - 0.5*x2, -0.3*x1 - 0.5*x2
+    #     "dynamics": "x1[k+1] = 1 - 1.4*x1[k]**2 + x2[k] + u0[k], x2[k+1] = 0.3*x1[k] + u1[k]",
+    #     "initial_set": {
+    #       "type": "bounds",
+    #       "bounds": [[-0.1, 0.1], [-0.1, 0.1]]
+    #     },
+    #     "unsafe_set": {
+    #       "type": "ball",
+    #       "radius": 2.0,
+    #       "center": [0, 0],
+    #       "complement": True
+    #     },
+    #     "controller_parameters": "u0, u1"
+    #   }
+
+    # test_problem = { #x1**2 + x2**2 - 0.5
+    #     "dynamics": "x1[k+1] = x1[k] + 0.01*(-100*x1[k] - 1*x2[k]), x2[k+1] = x2[k] + 0.01*(1*x1[k] - 100*x2[k])",
+    #     "initial_set": {
+    #       "type": "bounds",
+    #       "bounds": [[0.1, 0.4], [0.1, 0.55]]
+    #     },
+    #     "unsafe_set": {
+    #       "type": "bounds",
+    #       "bounds": [[0.45, 0.5], [0.6, 1]],
+    #       "complement": False
+    #     }
+    #   }
+
+    # test_problem = { #x1 + x2 - 0.9 # x1 - 2.3*sin(x1) - 0.5, 0.1*x2 - 0.1*sin(x1) - 0.2
+    #     "dynamics": "x1[k+1] = 2.3*sin(x1[k]) + u0[k], x2[k+1] = 0.9*x2[k] + 0.1*sin(x1[k]) + u1[k]",
+    #     "initial_set": {
+    #       "type": "bounds",
+    #       "bounds": [[0.1, 0.5], [0.2, 0.4]]
+    #     },
+    #     "unsafe_set": {
+    #       "type": "bounds",
+    #       "bounds": [[2.0, 2.5], [1.5, 2.0]],
+    #       "complement": False
+    #     },
+    #     "controller_parameters": "u0, u1"
+    #   }
+
+    # test_problem = { #x1 + x2 - 1.2 # u0 = -1.2*sin(x1) + x1 - 0.05, u1 = 0.12*x2 - 0.05
+    #     "dynamics": "x1[k+1] = 1.2*sin(x1[k]) + u0[k], x2[k+1] = 0.88*x2[k] + u1[k]",
+    #     "initial_set": {
+    #         "type": "bounds",
+    #         "bounds": [[0.1, 0.5], [0.2, 0.4]]
+    #     },
+    #     "unsafe_set": {
+    #         "type": "bounds",
+    #         "bounds": [[2.0, 2.5], [1.5, 2.0]],
+    #         "complement": False
+    #     },
+    #     "controller_parameters": "u0, u1"
+    # }
+
+
     api_key = "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"
     
     synthesizer = SimplifiedBarrierSynthesis(

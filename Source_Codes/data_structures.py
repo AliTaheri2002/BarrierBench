@@ -3,6 +3,7 @@ import math
 from typing import Dict, List, Tuple, Optional, Any, Union
 from dataclasses import dataclass
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -533,24 +534,31 @@ def _simulate_one_step(initial_point: List[float], dynamics: str) -> List[List[f
         print(f"ERROR: One-step simulation failed: {e}")
         return [initial_point, initial_point]  # Fallback
 
-
 def _apply_dynamics_step(point: List[float], dynamics: str) -> List[float]:
     """Apply one dynamics step - simplified version"""
     try:
-        # Simple Euler integration with dt = 0.01
-        dt = 0.01
-        derivatives = _evaluate_dynamics_at_point(point, dynamics)
         
-        next_point = []
-        for i, (coord, deriv) in enumerate(zip(point, derivatives)):
-            next_coord = coord + dt * deriv
-            next_point.append(next_coord)
+        is_discrete = '[k+1]' in dynamics or '[k]' in dynamics
         
-        return next_point
+        if is_discrete:
+            # DISCRETE: x[k+1] = f(x[k]) - directly use the computed next state
+            next_state = _evaluate_dynamics_at_point(point, dynamics)
+            return next_state
+        else:
+            # CONTINUOUS: Simple Euler integration with dt = 0.01
+            dt = 0.01
+            derivatives = _evaluate_dynamics_at_point(point, dynamics)
+            
+            next_point = []
+            for i, (coord, deriv) in enumerate(zip(point, derivatives)):
+                next_coord = coord + dt * deriv
+                next_point.append(next_coord)
+            
+            return next_point
+            
     except Exception as e:
         print(f"ERROR: Dynamics step failed: {e}")
         return point  # Fallback to same point
-
 
 def validate_barrier_on_samples(barrier_expr: str, problem: Dict[str, Any], samples: Dict[str, Any], controller_expr: str = None) -> Dict[str, Any]:
     """
@@ -719,6 +727,10 @@ def _substitute_controller_into_dynamics_for_samples(dynamics_str: str, controll
             print(f"DEBUG: Empty controller dictionary, returning original dynamics")
             return dynamics_str
             
+        # For evaluation purposes, we only need the functional form f(x), not f(x[k])
+        dynamics_str = re.sub(r'\[k\+1\]', '', dynamics_str)  # Remove [k+1]
+        dynamics_str = re.sub(r'\[k\]', '', dynamics_str)      # Remove [k]
+
         # Split dynamics into individual equations
         equations = [eq.strip() for eq in dynamics_str.split(',')]
         
@@ -757,6 +769,15 @@ def _substitute_controller_into_dynamics_for_samples(dynamics_str: str, controll
 def _evaluate_dynamics_at_point(point: List[float], dynamics: str) -> List[float]:
     """Evaluate dynamics at a given point - simplified version with controller support"""
     try:
+        # print(dynamics)
+        # exit()
+        is_discrete = '[k+1]' in dynamics or '[k]' in dynamics
+        
+        # For discrete systems, strip the [k] notation for evaluation
+        if is_discrete:
+            dynamics = re.sub(r'\[k\+1\]', '', dynamics)  # Remove [k+1]
+            dynamics = re.sub(r'\[k\]', '', dynamics) 
+
         # Parse dynamics string and evaluate
         equations = [eq.strip() for eq in dynamics.split(',')]
         derivatives = []

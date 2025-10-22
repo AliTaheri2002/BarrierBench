@@ -285,11 +285,30 @@ def _verify_unsafe_condition_z3_with_retry(barrier_z3, z3_vars: Dict, unsafe_set
             else:
                 raise RuntimeError(f"Z3 unsafe condition verification failed after {max_retries} attempts: {e}")
 
+def _is_discrete_time(dynamics: Union[str, Dict, List]) -> bool:
+    """Detect if dynamics are discrete-time or continuous-time"""
+    try:
+        if isinstance(dynamics, str):
+            return '[k+1]' in dynamics or '[k]' in dynamics
+        elif isinstance(dynamics, dict):
+            # Check first value
+            first_val = next(iter(dynamics.values())) if dynamics else ""
+            return '[k+1]' in str(first_val) or '[k]' in str(first_val)
+        elif isinstance(dynamics, list):
+            first_val = dynamics[0] if dynamics else ""
+            return '[k+1]' in str(first_val) or '[k]' in str(first_val)
+        return False
+    except Exception:
+        return False
 
 def _verify_invariance_condition_z3_with_retry(barrier_expr: sp.Expr, barrier_z3, z3_vars: Dict, 
                                              dynamics: Union[str, Dict, List]) -> Dict[str, Any]:
-    """Verify ∇B(x)·f(x) < 0 for all x where B(x) = 0 using Z3 - supports N variables"""
+    """Verify invariance: continuous uses ∇B·f < 0, discrete uses B(f(x)) - B(x) ≤ 0 - supports N variables"""
     max_retries = 3
+    
+    # Detect time domain
+    is_discrete = _is_discrete_time(dynamics)
+    logger.info(f"System type detected: {'DISCRETE-TIME' if is_discrete else 'CONTINUOUS-TIME'}")
     
     for retry_attempt in range(max_retries):
         try:
@@ -323,64 +342,126 @@ def _verify_invariance_condition_z3_with_retry(barrier_expr: sp.Expr, barrier_z3
                 else:
                     all_system_vars.append(sp.Symbol(var_name, real=True))
             
-            # Compute gradient with respect to ALL system variables
-            gradient = [sp.diff(barrier_expr, var) for var in all_system_vars]
-            
-            # Validate gradient is not all zeros
-            if all(g == 0 for g in gradient):
-                raise ValueError("Gradient is all zeros - barrier may not depend on variables properly")
-            
             # Parse dynamics for ALL system variables
             dynamics_exprs = _parse_dynamics(dynamics, all_system_vars)
             if len(dynamics_exprs) != len(all_system_vars):
                 raise ValueError(f'Dynamics dimension mismatch: got {len(dynamics_exprs)}, expected {len(all_system_vars)}')
             
-            # Compute Lie derivative
-            lie_derivative = sum(grad * dyn for grad, dyn in zip(gradient, dynamics_exprs))
+            # NEW: Extract controller parameters from dynamics
+            controller_symbols = set()
+            for expr in dynamics_exprs:
+                expr_symbols = expr.free_symbols
+                for sym in expr_symbols:
+                    sym_str = str(sym)
+                    # Controller parameters typically: u0, u1, u2, etc.
+                    if sym_str.startswith('u') and (sym_str[1:].isdigit() or len(sym_str) == 1):
+                        controller_symbols.add(sym)
             
-            # Ensure z3_vars contains all system variables
+            logger.info(f"Detected controller parameters: {[str(s) for s in controller_symbols]}")
+            
+            # Ensure z3_vars contains all system variables AND controller parameters
             for var in all_system_vars:
                 var_name = str(var)
                 if var_name not in z3_vars:
                     z3_vars[var_name] = z3.Real(var_name)
             
-            # Convert to Z3 with retry
-            lie_derivative_z3 = _sympy_to_z3_with_retry(lie_derivative, z3_vars)
+            # NEW: Add controller parameters to z3_vars
+            for ctrl_sym in controller_symbols:
+                ctrl_name = str(ctrl_sym)
+                if ctrl_name not in z3_vars:
+                    z3_vars[ctrl_name] = z3.Real(ctrl_name)
+                    logger.info(f"Added controller parameter to Z3: {ctrl_name}")
             
-            solver = z3.Solver()
-            
-            # Add constraint: B(x) = 0 (on the boundary)
-            solver.add(barrier_z3 == 0)
-            
-            # For strict inequality ∇B(x)·f(x) < 0
-            # Add negation: ∃x : B(x) = 0 ∧ ∇B(x)·f(x) ≥ 0
-            solver.add(lie_derivative_z3 >= 0)
-            
-            # Check satisfiability with timeout
-            solver.set("timeout", 30000)
-            result = solver.check()
-            
-            if result == z3.unsat:
-                return {
-                    'satisfied': True,
-                    'method': 'z3_formal',
-                    'details': 'No counterexample found - ∇B(x)·f(x) < 0 formally verified'
-                }
-            elif result == z3.sat:
-                model = solver.model()
-                counterexample = {str(var): model[z3_var] for var, z3_var in z3_vars.items() if model[z3_var] is not None}
-                return {
-                    'satisfied': False,
-                    'method': 'z3_formal',
-                    'details': 'Counterexample found - ∇B(x)·f(x) ≥ 0 at some boundary point',
-                    'counterexample': counterexample
-                }
-            else:
-                if retry_attempt < max_retries - 1:
-                    logger.warning(f"Z3 invariance condition check returned unknown, retrying...")
-                    continue
+            if is_discrete:
+                # ========== DISCRETE-TIME: B(f(x)) - B(x) ≤ 0 ==========
+                logger.info("Using discrete-time barrier condition: B(f(x)) - B(x) ≤ 0")
+                
+                # Substitute dynamics into barrier to get B(f(x))
+                subs_dict = {var: dynamics_exprs[i] for i, var in enumerate(all_system_vars)}
+                barrier_next = barrier_expr.subs(subs_dict)
+                
+                # Convert B(f(x)) to Z3
+                barrier_next_z3 = _sympy_to_z3_with_retry(barrier_next, z3_vars)
+                
+                solver = z3.Solver()
+                    
+                solver.add(barrier_next_z3 - barrier_z3 > 0)
+                
+                # Check satisfiability with timeout
+                solver.set("timeout", 30000)
+                result = solver.check()
+                
+                if result == z3.unsat:
+                    return {
+                        'satisfied': True,
+                        'method': 'z3_formal',
+                        'details': 'No counterexample found - B(f(x)) - B(x) ≤ 0 formally verified'
+                    }
+                elif result == z3.sat:
+                    model = solver.model()
+                    counterexample = {str(var): model[z3_var] for var, z3_var in z3_vars.items() if model[z3_var] is not None}
+                    return {
+                        'satisfied': False,
+                        'method': 'z3_formal',
+                        'details': 'Counterexample found - B(f(x)) - B(x) > 0 at some boundary point',
+                        'counterexample': counterexample
+                    }
                 else:
-                    raise RuntimeError("Z3 solver returned unknown result after all retries")
+                    if retry_attempt < max_retries - 1:
+                        logger.warning(f"Z3 invariance condition check returned unknown, retrying...")
+                        continue
+                    else:
+                        raise RuntimeError("Z3 solver returned unknown result after all retries")
+            
+            else:
+                # ========== CONTINUOUS-TIME: ∇B·f < 0 (ORIGINAL LOGIC) ==========
+                logger.info("Using continuous-time barrier condition: ∇B(x)·f(x) < 0")
+                
+                # Compute gradient with respect to ALL system variables
+                gradient = [sp.diff(barrier_expr, var) for var in all_system_vars]
+                
+                # Validate gradient is not all zeros
+                if all(g == 0 for g in gradient):
+                    raise ValueError("Gradient is all zeros - barrier may not depend on variables properly")
+                
+                # Compute Lie derivative
+                lie_derivative = sum(grad * dyn for grad, dyn in zip(gradient, dynamics_exprs))
+                
+                # Convert to Z3 with retry
+                lie_derivative_z3 = _sympy_to_z3_with_retry(lie_derivative, z3_vars)
+                
+                solver = z3.Solver()
+                
+                # Add constraint: B(x) = 0 (on the boundary)
+                solver.add(barrier_z3 == 0)
+                
+                solver.add(lie_derivative_z3 >= 0)
+                
+                # Check satisfiability with timeout
+                solver.set("timeout", 30000)
+                result = solver.check()
+                
+                if result == z3.unsat:
+                    return {
+                        'satisfied': True,
+                        'method': 'z3_formal',
+                        'details': 'No counterexample found - ∇B(x)·f(x) < 0 formally verified'
+                    }
+                elif result == z3.sat:
+                    model = solver.model()
+                    counterexample = {str(var): model[z3_var] for var, z3_var in z3_vars.items() if model[z3_var] is not None}
+                    return {
+                        'satisfied': False,
+                        'method': 'z3_formal',
+                        'details': 'Counterexample found - ∇B(x)·f(x) ≥ 0 at some boundary point',
+                        'counterexample': counterexample
+                    }
+                else:
+                    if retry_attempt < max_retries - 1:
+                        logger.warning(f"Z3 invariance condition check returned unknown, retrying...")
+                        continue
+                    else:
+                        raise RuntimeError("Z3 solver returned unknown result after all retries")
                     
         except Exception as e:
             logger.warning(f"Z3 invariance condition verification attempt {retry_attempt + 1}/{max_retries} failed: {e}")
@@ -388,7 +469,6 @@ def _verify_invariance_condition_z3_with_retry(barrier_expr: sp.Expr, barrier_z3
                 continue
             else:
                 raise RuntimeError(f"Z3 invariance condition verification failed after {max_retries} attempts: {e}")
-
 
 def _get_set_constraints_z3(set_description: Dict, z3_vars: Dict) -> List:
     """Convert set description to Z3 constraints - supports N-dimensional sets"""
@@ -466,6 +546,11 @@ def _parse_dynamics(dynamics: Union[str, Dict, List], variables: List[sp.Symbol]
 def _parse_string_dynamics(dynamics_str: str, variables: List[sp.Symbol]) -> List[sp.Expr]:
     """Parse string dynamics - supports N variables"""
     try:
+
+        # This converts "x1[k+1] = x1[k] + x2[k]" → "x1 = x1 + x2"
+        dynamics_str = re.sub(r'\[k\+1\]', '', dynamics_str)  # Remove [k+1]
+        dynamics_str = re.sub(r'\[k\]', '', dynamics_str)      # Remove [k]
+        
         # Split by comma for multiple equations
         equations = [eq.strip() for eq in dynamics_str.split(',')]
         
