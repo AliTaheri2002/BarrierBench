@@ -8,16 +8,16 @@ logger = logging.getLogger(__name__)
 
 
 def clean_and_extract_barrier(barrier_str: str) -> str:
-    """Extract and clean barrier certificate with ENHANCED Unicode handling and support for x1-x10"""
+    # extract and clean barrier certificate 
     if not barrier_str or not isinstance(barrier_str, str):
         return ""
     
     try:
-        # Remove common prefixes
+        # common prefixes
         barrier_str = re.sub(r'B\(x\)\s*=\s*', '', barrier_str, flags=re.IGNORECASE)
         barrier_str = re.sub(r'barrier\s*certificate\s*:?\s*', '', barrier_str, flags=re.IGNORECASE)
         
-        # ENHANCED Unicode handling
+        # unicode handling
         unicode_subscripts = {
             '₀': '0', '₁': '1', '₂': '2', '₃': '3', '₄': '4',
             '₅': '5', '₆': '6', '₇': '7', '₈': '8', '₉': '9'
@@ -25,7 +25,7 @@ def clean_and_extract_barrier(barrier_str: str) -> str:
         for unicode_char, ascii_char in unicode_subscripts.items():
             barrier_str = barrier_str.replace(unicode_char, ascii_char)
         
-        # Convert Unicode superscripts to ** notation (including 4th power)
+        # unicode superscripts to **  
         unicode_superscripts = {
             '²': '**2', '³': '**3', '⁴': '**4', '⁵': '**5',
             '⁶': '**6', '⁷': '**7', '⁸': '**8', '⁹': '**9'
@@ -33,72 +33,69 @@ def clean_and_extract_barrier(barrier_str: str) -> str:
         for unicode_char, ascii_notation in unicode_superscripts.items():
             barrier_str = barrier_str.replace(unicode_char, ascii_notation)
         
-        # Remove LaTeX escape characters
+        # LaTeX escape characters
         barrier_str = barrier_str.replace('\\\\', '\\').replace('\\ ', ' ')
         
-        # Convert LaTeX multiplication symbols
+        # LaTeX multiplication
         barrier_str = barrier_str.replace('\\cdot', '*')
         barrier_str = barrier_str.replace('\\times', '*')
-        barrier_str = barrier_str.replace('·', '*')  # Unicode multiplication dot
+        barrier_str = barrier_str.replace('·', '*')  
         
-        # Convert subscript notation x_i -> xi for x1-x10
+        # subscript notation x_i -> xi
         barrier_str = re.sub(r'x_(\d+)', r'x\1', barrier_str)
         
-        # Convert superscript notation xi^n -> xi**n for x1-x10 and any power
-        barrier_str = re.sub(r'x(\d+)\^(\d+)', r'x\1**\2', barrier_str)  # x1^4 -> x1**4
-        barrier_str = re.sub(r'x\^(\d+)', r'x**\1', barrier_str)         # x^4 -> x**4
+        barrier_str = re.sub(r'x(\d+)\^(\d+)', r'x\1**\2', barrier_str)                     # x1^4 -> x1**4
+        barrier_str = re.sub(r'x\^(\d+)', r'x**\1', barrier_str)                            # x^4 -> x**4
         
-        # Convert general superscript with parentheses: (expression)^n -> (expression)**n
+        # general superscript with parentheses like (--)^n -> (--)**n
         barrier_str = re.sub(r'\^(\d+)', r'**\1', barrier_str)
         
-        # Fix standalone ^ to **
+        # standalone ^ to **
         barrier_str = barrier_str.replace('^', '**')
         
-        # Remove any remaining backslashes
+        # backslashes
         barrier_str = re.sub(r'\\', '', barrier_str)
         
         # Clean formatting
         barrier_str = barrier_str.strip().strip('"\'.,;:')
         
-        # Fix implicit multiplication: 2x -> 2*x, but handle x1-x10
-        barrier_str = re.sub(r'(\d)([x])', r'\1*\2', barrier_str)      # 2x -> 2*x
-        barrier_str = re.sub(r'(x\d+)([x])', r'\1*\2', barrier_str)   # x1x2 -> x1*x2
-        barrier_str = re.sub(r'([x\d])\((?!.*(?:sin|cos))', r'\1*(', barrier_str)      # x( -> x*( but not sin( or cos(
-        barrier_str = re.sub(r'\)([x\d])', r')*\1', barrier_str)      # )x -> )*x
+        barrier_str = re.sub(r'(\d)([x])', r'\1*\2', barrier_str)                           # 2x -> 2*x
+        barrier_str = re.sub(r'(x\d+)([x])', r'\1*\2', barrier_str)                         # x1x2 -> x1*x2
+        barrier_str = re.sub(r'([x\d])\((?!.*(?:sin|cos))', r'\1*(', barrier_str)           # x( -> x*( 
+        barrier_str = re.sub(r'\)([x\d])', r')*\1', barrier_str)                            # )x -> )*x
         
-        # Fix common issues
+        # common issues
         barrier_str = re.sub(r'\s+', ' ', barrier_str)
         
-        # Balance parentheses BEFORE extraction
+        # balance parentheses
         barrier_str = _balance_parentheses(barrier_str)
         
-        # Remove trailing operators
+        # trailing operators
         barrier_str = re.sub(r'[+\-\*]+\s*$', '', barrier_str).strip()
         
-        # Extract mathematical expression using improved patterns
+        # extract mathematical expression
         extracted_expr = _extract_mathematical_expression(barrier_str)
         
         if extracted_expr:
             barrier_str = extracted_expr
         
-        # Final cleanup
+        # cleanup
         barrier_str = barrier_str.strip()
         
-        # Ensure proper variable naming (x1-x10 not x₁-x₁₀)
+        # x1-x10 not x₁-x₁₀
         for i in range(1, 11):
             barrier_str = re.sub(f'x₍{i}₎', f'x{i}', barrier_str)
         
-        # FINAL FIX: One more parentheses balance check
+        # one more parentheses balance check
         barrier_str = _balance_parentheses(barrier_str)
         
-        # Validate basic structure including variables x1-x10
+        # check basic structure including variables x1-x10
         if len(barrier_str) < 3 or not (re.search(r'x\d+', barrier_str) or re.search(r'(?:sin|cos)\(', barrier_str)):
             return ""
         
-        # Additional validation: ensure it doesn't end with operators
+        # ensure it doesn't end with operators
         barrier_str = re.sub(r'[+\-\*]+$', '', barrier_str).strip()
         
-        # Log the cleaned result for debugging
         if barrier_str:
             logger.info(f"Cleaned barrier expression: '{barrier_str}'")
         
@@ -110,7 +107,7 @@ def clean_and_extract_barrier(barrier_str: str) -> str:
 
 
 def _balance_parentheses(expression: str) -> str:
-    """Balance parentheses in mathematical expression"""
+    # balance parentheses
     try:
         open_parens = expression.count('(')
         close_parens = expression.count(')')
@@ -138,20 +135,12 @@ def _balance_parentheses(expression: str) -> str:
 
 
 def _extract_mathematical_expression(text: str) -> str:
-    """Extract mathematical expression with enhanced support for x1-x10 variables"""
+    # extract mathematical expression
     try:
-        # Enhanced patterns that handle x1-x10 variables
         math_patterns = [
-            # Pattern 1: Complete polynomial with mixed terms (most comprehensive)
-            r'((?:[-+]?\s*\d*\.?\d*\s*\*?\s*(?:x\d+(?:\*\*\d+)?(?:\s*\*\s*x\d+(?:\*\*\d+)?)*|(?:sin|cos)\([^)]+\))(?:\s*[+\-]\s*\d*\.?\d*\s*\*?\s*(?:x\d+(?:\*\*\d+)?(?:\s*\*\s*x\d+(?:\*\*\d+)?)*|(?:sin|cos)\([^)]+\)))*(?:\s*[+\-]\s*\d+\.?\d*)?))',
-            
-            # Pattern 2: Polynomial terms with mixed variables x1-x10
+            r'((?:[-+]?\s*\d*\.?\d*\s*\*?\s*(?:x\d+(?:\*\*\d+)?(?:\s*\*\s*x\d+(?:\*\*\d+)?)*|(?:sin|cos)\([^)]+\))(?:\s*[+\-]\s*\d*\.?\d*\s*\*?\s*(?:x\d+(?:\*\*\d+)?(?:\s*\*\s*x\d+(?:\*\*\d+)?)*|(?:sin|cos)\([^)]+\)))*(?:\s*[+\-]\s*\d+\.?\d*)?))',           
             r'((?:[-+]?\s*\d*\.?\d*\s*\*?\s*x\d+(?:\*\*\d+)?(?:\s*\*\s*x\d+(?:\*\*\d+)?)*(?:\s*[+\-]\s*\d*\.?\d*\s*\*?\s*x\d+(?:\*\*\d+)?(?:\s*\*\s*x\d+(?:\*\*\d+)?)*)*(?:\s*[+\-]\s*\d+\.?\d*)?))',
-            
-            # Pattern 3: Complete expression with trigonometric functions
             r'((?:[-+]?\d*\.?\d*\*?(?:sin|cos)\([^)]+\)|[-+]?\d*\.?\d*\*?x\d+(?:\*\*\d+)?(?:\*x\d+(?:\*\*\d+)?)*|[-+]?\d*\.?\d+)(?:\s*[+\-]\s*(?:[-+]?\d*\.?\d*\*?(?:sin|cos)\([^)]+\)|[-+]?\d*\.?\d*\*?x\d+(?:\*\*\d+)?(?:\*x\d+(?:\*\*\d+)?)*|[-+]?\d*\.?\d+))*)',
-            
-            # Pattern 4: Simple polynomial terms for x1-x10
             r'([-+]?\d*\.?\d*\*?x\d+(?:\*\*\d+)?(?:\s*[+\-]\s*[-+]?\d*\.?\d*\*?x\d+(?:\*\*\d+)?)*(?:\s*[+\-]\s*[-+]?\d*\.?\d+)?)',
         ]
         
@@ -166,7 +155,6 @@ def _extract_mathematical_expression(text: str) -> str:
                 
                 extracted = match.strip()
                 
-                # Validate the match - should contain variables x1-x10 and be reasonably long
                 if (len(extracted) > 3 and 
                     (re.search(r'x\d+', extracted) or re.search(r'(?:sin|cos)\(', extracted)) and
                     len(extracted) > best_length):
@@ -190,7 +178,6 @@ def _extract_mathematical_expression(text: str) -> str:
 
 
 def _validate_trigonometric_syntax(expression: str) -> bool:
-    """Validate trigonometric function syntax"""
     try:
         trig_functions = re.findall(r'(?:sin|cos)\([^)]*\)', expression)
         
@@ -205,7 +192,7 @@ def _validate_trigonometric_syntax(expression: str) -> bool:
             inner_content = re.search(r'(?:sin|cos)\(([^)]*)\)', func)
             if inner_content and inner_content.group(1).strip():
                 inner = inner_content.group(1)
-                # Should contain x1-x10 or mathematical expressions
+                # must contain x1-x10 or mathematical expressions
                 if not (re.search(r'x\d+', inner) or re.search(r'[+\-\*\d]', inner)):
                     logger.warning(f"Invalid trigonometric function content: {func}")
                     return False
@@ -221,7 +208,7 @@ def _validate_trigonometric_syntax(expression: str) -> bool:
 
 
 def parse_barrier_certificate(barrier_str: str) -> Tuple[Optional[sp.Expr], List[sp.Symbol]]:
-    """Parse barrier certificate string into symbolic expression - supports x1-x10"""
+    # parse barrier certificate string into symbolic expression
     try:
         cleaned_str = clean_and_extract_barrier(barrier_str)
         if not cleaned_str:
@@ -230,39 +217,34 @@ def parse_barrier_certificate(barrier_str: str) -> Tuple[Optional[sp.Expr], List
         
         logger.info(f"Parsing cleaned barrier: '{cleaned_str}'")
         
-        # Extract variables from x1 to x10
+        # extract variables
         variables = sorted(set(re.findall(r'\bx\d+\b', cleaned_str)), key=lambda x: int(x[1:]))
         if not variables:
-            # Also check inside trigonometric functions
             trig_vars = re.findall(r'(?:sin|cos)\([^)]*\b(x\d+)\b[^)]*\)', cleaned_str)
             if trig_vars:
                 variables = sorted(set(trig_vars), key=lambda x: int(x[1:]))
             else:
-                variables = ['x1', 'x2']  # Default fallback
+                variables = ['x1', 'x2']  # default
         
         var_symbols = [sp.Symbol(var, real=True) for var in variables]
         
-        # Parse expression with additional preprocessing
         try:
             expr_str = cleaned_str
             
-            # Ensure multiplication is explicit for x1-x10
-            expr_str = re.sub(r'(\d)([x])', r'\1*\2', expr_str)  # 2x -> 2*x
-            expr_str = re.sub(r'([x\d])\(', r'\1*(', expr_str)    # x( -> x*(
-            expr_str = re.sub(r'\)([x\d])', r')*\1', expr_str)    # )x -> )*x
+            expr_str = re.sub(r'(\d)([x])', r'\1*\2', expr_str)             # 2x -> 2*x
+            expr_str = re.sub(r'([x\d])\(', r'\1*(', expr_str)              # x( -> x*(
+            expr_str = re.sub(r'\)([x\d])', r')*\1', expr_str)              # )x -> )*x
             
-            # Handle trigonometric functions
             expr_str = re.sub(r'sin\*\(', 'sin(', expr_str)
             expr_str = re.sub(r'cos\*\(', 'cos(', expr_str)
             
-            # Handle decimal coefficients properly
             expr_str = re.sub(r'(\d)\.(\d)', r'\1.\2', expr_str)
             
             logger.info(f"Final expression for parsing: '{expr_str}'")
             
             expr = sp.sympify(expr_str, evaluate=True)
             
-            # Validate
+            # validate
             if expr.free_symbols or (hasattr(expr, 'has') and (expr.has(sp.sin) or expr.has(sp.cos))):
                 logger.info(f"Successfully parsed expression: {expr}")
                 return expr, var_symbols
@@ -282,33 +264,30 @@ def parse_barrier_certificate(barrier_str: str) -> Tuple[Optional[sp.Expr], List
         return None, []
 
 
-def _evaluate_expression(expr: sp.Expr, variables: List[sp.Symbol], 
-                        point: List[float]) -> float:
-    """Safely evaluate symbolic expression at a point - supports N variables"""
+def _evaluate_expression(expr: sp.Expr, variables: List[sp.Symbol], point: List[float]) -> float:
     try:
         subs_dict = dict(zip(variables, point[:len(variables)]))
         value = expr.subs(subs_dict)
-        
-        if hasattr(value, 'evalf'):
-            result = value.evalf()
-        else:
-            result = value
-        
-        try:
-            return float(result)
-        except (TypeError, ValueError):
-            import numpy as np
-            if hasattr(result, 'subs'):
-                for var, val in subs_dict.items():
-                    result = result.subs(var, val)
-            
-            try:
-                return float(result.evalf())
-            except:
-                result_str = str(result)
-                if 'sin' in result_str or 'cos' in result_str:
-                    return 0.1  # Small positive value as approximation
-                raise
-            
+        if hasattr(value, "evalf"):
+            result = float(value.evalf())
+            return result
+        return float(value)
     except Exception as e:
-        raise ValueError(f"Cannot evaluate expression: {e}")
+        try:
+            expr_str = str(expr)
+            for var, val in subs_dict.items():
+                expr_str = expr_str.replace(str(var), str(val))
+            safe_dict = {
+                "__builtins__": {},
+                "sin": math.sin,
+                "cos": math.cos,
+                "tan": math.tan,
+                "exp": math.exp,
+                "sqrt": math.sqrt,
+                "abs": abs,
+                "pi": math.pi,
+            }
+            return float(eval(expr_str, safe_dict))
+        except Exception as e2:
+            logger.warning(f"Expression evaluation failed for {expr}: {e2}")
+            return float("nan")
