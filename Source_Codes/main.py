@@ -1,12 +1,11 @@
 import os
-import sys
 import logging
 import json
 import time
 import re
-from typing import Dict, List, Tuple, Optional, Any, Union
-from barrier_verification import get_detailed_condition_results
-from data_structures import generate_samples_for_barrier_validation, validate_barrier_on_samples
+from typing import Dict, List, Tuple, Optional, Any
+from barrier_verification import get_condition_results
+from data_structures import generate_samples_for_barrier_validation, validate_barrier_on_samples, parse_controller_expressions
 import anthropic
 
 
@@ -23,48 +22,38 @@ class BarrierDataset:
 
     def load_dataset_from_json(self):
         # Load problems
-        try:
-            if os.path.exists(self.json_file_path):
-                with open(self.json_file_path, 'r', encoding='utf-8') as f:
-                    content = f.read().strip()
-                    if content:  # File isn't empty
-                        data = json.loads(content)
-                        self.test_cases = data.get('solved_problems', [])
-                    else:  # Empty file
-                        self.test_cases = []
-                        self._save_dataset_to_json()
-            else:
-                self.test_cases = []
-                self._save_dataset_to_json()
-
-        except Exception as e:
-            logger.warning(f"Failed to load dataset: {e}")
+        if os.path.exists(self.json_file_path):
+            with open(self.json_file_path, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                if content:  # File isn't empty
+                    data = json.loads(content)
+                    self.test_cases = data.get('solved_problems', [])
+                else:  # Empty file
+                    self.test_cases = []
+                    self.save_dataset_to_json()
+        else:
             self.test_cases = []
-            self._save_dataset_to_json()
+            self.save_dataset_to_json()
 
     def save_successful_barrier_to_json(self, problem: Dict[str, Any], barrier_certificate: str, 
                                         template_type: str, controller_certificate: str = None):
         # Save solution
-        try:
-            new_record = {'problem': problem, 'barrier': barrier_certificate}
-            if controller_certificate is not None:
-                new_record['controllers'] = controller_certificate
-            
-            new_record['template_type'] = template_type
+        new_record = {'problem': problem, 'barrier': barrier_certificate}
+        if controller_certificate is not None:
+            new_record['controllers'] = controller_certificate
+        
+        new_record['template_type'] = template_type
 
-            self.test_cases.append(new_record)
-            self._save_dataset_to_json()
-            logger.info(f"Saved to dataset: {barrier_certificate}")
-            if controller_certificate:
-                logger.info(f"With controllers: {controller_certificate}")
-
-        except Exception as e:
-            logger.error(f"Failed to save: {e}")
+        self.test_cases.append(new_record)
+        self.save_dataset_to_json()
+        logger.info(f"Saved to dataset: {barrier_certificate}")
+        if controller_certificate:
+            logger.info(f"With controllers: {controller_certificate}")
 
     def find_most_similar(self, target_problem: Dict[str, Any]) -> Optional[Dict]:
         # filter + LLM selection
         print(f"\nCritical Filter: Starting with {len(self.test_cases)} candidates")
-        target_features = self._extract_critical_features(target_problem)
+        target_features = self.extract_critical_features(target_problem)
         if not target_features:
             print("Failed to extract target features")
             return None
@@ -72,9 +61,9 @@ class BarrierDataset:
         print(f"Target features: {target_features}")
         compatible_candidates = []
         for i, case in enumerate(self.test_cases):
-            candidate_features = self._extract_critical_features(case['problem'])
+            candidate_features = self.extract_critical_features(case['problem'])
             
-            if self._check_compatible(target_features, candidate_features):
+            if self.check_compatible(target_features, candidate_features):
                 compatible_candidates.append(case)
             else:
                 print(f"  Filtered out candidate {i+1}: incompatible features {candidate_features}")
@@ -91,15 +80,11 @@ class BarrierDataset:
         
         # LLM selection
         print(f"Sending {len(compatible_candidates)} candidates to LLM for selection")
-        best_candidate = self._llm_select_from_compatible(target_problem, compatible_candidates)
+        best_candidate = self.llm_select_from_compatible(target_problem, compatible_candidates)
         
-        if best_candidate:
-            return best_candidate
-        else:
-            # return first solution 
-            return compatible_candidates[0]
+        return best_candidate
 
-    def _extract_critical_features(self, problem: Dict[str, Any]) -> Optional[Dict]:
+    def extract_critical_features(self, problem: Dict[str, Any]) -> Optional[Dict]:
         # extract features
         try:
             dynamics = problem.get('dynamics', '')
@@ -108,10 +93,10 @@ class BarrierDataset:
             
             features = {
                 
-                'dimension'  : self._get_system_dimension(dynamics),            # 1. System Dimension
-                'time_domain': self._get_time_domain(dynamics),                 # 2. Time Domain
-                'linearity': self._get_linearity(dynamics),                     # 3. Linearity
-                'set_topology': self._get_set_topology(initial_set, unsafe_set) # 4. Set Topology
+                'dimension'  : self.get_system_dimension(dynamics),            # 1. System Dimension
+                'time_domain': self.get_time_domain(dynamics),                 # 2. Time Domain
+                'linearity': self.get_linearity(dynamics),                     # 3. Linearity
+                'set_topology': self.get_set_topology(initial_set, unsafe_set) # 4. Set Topology
             }
 
             return features
@@ -120,12 +105,12 @@ class BarrierDataset:
             print(f"Feature extraction failed: {e}")
             return None
 
-    def _get_system_dimension(self, dynamics: str) -> int:
+    def get_system_dimension(self, dynamics: str) -> int:
         # get system dimension
         variables = set(re.findall(r'x(\d+)', dynamics))
         return len(variables)
 
-    def _get_time_domain(self, dynamics: str) -> str:
+    def get_time_domain(self, dynamics: str) -> str:
         # determine time domain
         if 'dt' in dynamics or 'd/dt' in dynamics:
             return 'continuous'
@@ -134,7 +119,7 @@ class BarrierDataset:
         else:
             return 'unknown'
 
-    def _get_linearity(self, dynamics: str) -> str:
+    def get_linearity(self, dynamics: str) -> str:
         # determine linearity
         if re.search(r'x\d+\*\*[2-9]', dynamics) or re.search(r'x\d+\*x\d+', dynamics):
             return 'nonlinear'
@@ -143,7 +128,7 @@ class BarrierDataset:
         else:
             return 'unknown'
 
-    def _get_set_topology(self, initial_set: Dict, unsafe_set: Dict) -> str:
+    def get_set_topology(self, initial_set: Dict, unsafe_set: Dict) -> str:
         init_type = initial_set.get('type', 'unknown')
         unsafe_type = unsafe_set.get('type', 'unknown')
         unsafe_complement = unsafe_set.get('complement', False)
@@ -152,14 +137,14 @@ class BarrierDataset:
         topology = f"{init_type}_to_{'complement_' if unsafe_complement else ''}{unsafe_type}"
         return topology
 
-    def _check_compatible(self, features1: Dict, features2: Dict) -> bool:
+    def check_compatible(self, features1: Dict, features2: Dict) -> bool:
         # check if two problems are compatible
         # if any fail, problems are incompatible
         critical_checks = [
             features1.get('dimension') == features2.get('dimension'),                               # 1. Same dimension
             features1.get('time_domain') == features2.get('time_domain'),                           # 2. Same time domain
             features1.get('linearity') == features2.get('linearity'),                               # 3. Same linearity
-            self._topology_compatible(features1.get('set_topology'), features2.get('set_topology')) # 4. Compatible topology
+            self.topology_compatible(features1.get('set_topology'), features2.get('set_topology')) # 4. Compatible topology
         ]
 
         if not all(critical_checks):
@@ -167,13 +152,13 @@ class BarrierDataset:
                   f"linear:{critical_checks[2]} topology:{critical_checks[3]}")
         return all(critical_checks)
 
-    def _topology_compatible(self, topo1: str, topo2: str) -> bool:
+    def topology_compatible(self, topo1: str, topo2: str) -> bool:
         if topo1 == topo2:
             return True
         # e.g., ball_to_ball or ball_to_complement_ball might still work.
         return topo1.replace('complement_', '') == topo2.replace('complement_', '')
 
-    def _llm_select_from_compatible(self, target_problem: Dict[str, Any], 
+    def llm_select_from_compatible(self, target_problem: Dict[str, Any], 
                                    compatible_candidates: List[Dict]) -> Optional[Dict]:
         # LLM select        
         candidates_text = ""
@@ -221,23 +206,20 @@ Answer with only the candidate number (1, 2, 3, etc.): """
                     print(f"Invalid candidate index returned by LLM: {index}")
                     return compatible_candidates[0]
             else:
-                print("No valid index detected in LLM output; returning first candidate.")
-                return compatible_candidates[0]
+                print("ERROR: LLM failed to select a candidate from compatible candidates. Unable to proceed with candidate selection.")
+                return None
             
         except Exception as e:
             print(f"LLM selection failed: {e}")
-            return compatible_candidates[0]
+            return None
 
-    def _save_dataset_to_json(self):
+    def save_dataset_to_json(self):
         # save dataset
-        try:
-            with open(self.json_file_path, 'w', encoding='utf-8') as f:
-                json.dump({'solved_problems': self.test_cases}, f, indent=2)
-        except Exception as e:
-            logger.error(f"Failed to save dataset: {e}")
+        with open(self.json_file_path, 'w', encoding='utf-8') as f:
+            json.dump({'solved_problems': self.test_cases}, f, indent=2)
 
 
-class SimplifiedBarrierSynthesis:
+class BarrierSynthesis:
     def __init__(self, api_key: str, model: str = "claude-sonnet-4-20250514", 
                  max_iterations: int = 5, dataset_json_path: str = "barrier_dataset.json"):
         self.client = anthropic.Anthropic(api_key=api_key)
@@ -268,7 +250,7 @@ class SimplifiedBarrierSynthesis:
                 
                 # Get template from LLM
                 if has_controller:
-                    template_and_expressions = self._get_template_and_barrier_from_llm(problem, iteration, has_controller)
+                    template_and_expressions = self.get_template_and_barrier_from_llm(problem, iteration, has_controller)
                     if not template_and_expressions or len(template_and_expressions) != 2:
                         logger.warning(f"Failed to get barrier+controller in iteration {iteration}")
                         continue
@@ -276,7 +258,7 @@ class SimplifiedBarrierSynthesis:
                     logger.info(f"LLM suggested barrier: {barrier_expr}")
                     logger.info(f"LLM suggested controller: {controller_expr}")
                 else:
-                    barrier_expr = self._get_template_and_barrier_from_llm(problem, iteration, has_controller)
+                    barrier_expr = self.get_template_and_barrier_from_llm(problem, iteration, has_controller)
                     controller_expr = None
                     if not barrier_expr:
                         logger.warning(f"Failed to get barrier in iteration {iteration}")
@@ -284,11 +266,11 @@ class SimplifiedBarrierSynthesis:
                     logger.info(f"LLM suggested: {barrier_expr}")
                 
                 # Verify
-                verification_result = self._verify_barrier(barrier_expr, problem, controller_expr if has_controller else None)
+                verification_result = self.verify_barrier(barrier_expr, problem, controller_expr if has_controller else None)
                 
                 if not verification_result:
                     logger.warning(f"Verification failed in iteration {iteration}")
-                    self._add_to_history(iteration, barrier_expr, 0, "verification_error", controller_expr if has_controller else None)
+                    self.add_to_history(iteration, barrier_expr, 0, "verification_error", controller_expr if has_controller else None)
                     continue
                 
                 score = sum([verification_result['condition_1'], verification_result['condition_2'], verification_result['condition_3']])
@@ -311,7 +293,7 @@ class SimplifiedBarrierSynthesis:
                         
 
                         if has_controller:
-                            refined_expressions = self._refine_barrier(
+                            refined_expressions = self.refine_barrier(
                                 original_barrier, best_barrier, problem, best_verification, 
                                 refinement, iteration_refinements, has_controller, 
                                 original_controller, best_controller
@@ -320,7 +302,7 @@ class SimplifiedBarrierSynthesis:
                                 continue
                             refined_barrier, refined_controller = refined_expressions
                         else:
-                            refined_barrier = self._refine_barrier(
+                            refined_barrier = self.refine_barrier(
                                 original_barrier, best_barrier, problem, best_verification, 
                                 refinement, iteration_refinements, has_controller
                             )
@@ -328,7 +310,7 @@ class SimplifiedBarrierSynthesis:
                             if not refined_barrier:
                                 continue
                         
-                        ref_verification = self._verify_barrier(
+                        ref_verification = self.verify_barrier(
                             refined_barrier, problem, 
                             refined_controller if has_controller else None
                         )
@@ -340,7 +322,7 @@ class SimplifiedBarrierSynthesis:
                             'refinement_num': refinement,
                             'barrier': refined_barrier, 'controller': refined_controller if has_controller else None,
                             'base_barrier': best_barrier, 'base_controller': best_controller if has_controller else None,
-                            'verification': ref_verification, 'failed_conditions': self._get_failed_conditions(ref_verification)})
+                            'verification': ref_verification, 'failed_conditions': self.get_failed_conditions(ref_verification)})
                         
                         ref_score = sum([ref_verification['condition_1'], ref_verification['condition_2'], ref_verification['condition_3']])
                         
@@ -356,7 +338,7 @@ class SimplifiedBarrierSynthesis:
                             break
                 
                 # store result
-                self._add_to_history(iteration, best_barrier, best_score, best_verification, best_controller if has_controller else None)
+                self.add_to_history(iteration, best_barrier, best_score, best_verification, best_controller if has_controller else None)
                 
                 # success check
                 if best_score == 3:
@@ -364,15 +346,13 @@ class SimplifiedBarrierSynthesis:
                     logger.info(f"SUCCESS! Found valid {'barrier+controller' if has_controller else 'barrier'} in iteration {iteration}")
                     
                     # save to dataset
-                    try:
-                        self.dataset.save_successful_barrier_to_json(
-                            problem=problem,
-                            barrier_certificate=best_barrier,
-                            template_type="llm_generated_with_controller" if has_controller else "llm_generated",
-                            controller_certificate=best_controller if has_controller else None
-                        )
-                    except Exception as e:
-                        logger.warning(f"Failed to save to dataset: {e}")
+                    self.dataset.save_successful_barrier_to_json(
+                        problem=problem,
+                        barrier_certificate=best_barrier,
+                        template_type="llm_generated_with_controller" if has_controller else "llm_generated",
+                        controller_certificate=best_controller if has_controller else None
+                    )
+
                     
                     result = {
                         'success': True,
@@ -412,7 +392,7 @@ class SimplifiedBarrierSynthesis:
                 'total_time': time.time() - start_time
             }
     
-    def _get_template_and_barrier_from_llm(self, problem: Dict[str, Any], iteration: int, has_controller: bool = False):        
+    def get_template_and_barrier_from_llm(self, problem: Dict[str, Any], iteration: int, has_controller: bool = False):        
         dynamics = problem.get('dynamics', '')
         is_discrete = '[k+1]' in dynamics or '[k]' in dynamics
         system_type = "DISCRETE-TIME" if is_discrete else "CONTINUOUS-TIME"
@@ -438,7 +418,7 @@ class SimplifiedBarrierSynthesis:
                 context = "No similar problems found. Analyze this problem fresh.\n\n"   # pls note you can also put context = "", but this may help guide the LLM :)
         else:
             # using previous failures
-            context = self._prepare_iteration_context(iteration, has_controller)
+            context = self.prepare_iteration_context(iteration, has_controller)
         
         if has_controller:
             controller_explanation_1 = f"""
@@ -481,7 +461,7 @@ class SimplifiedBarrierSynthesis:
         2. B(x) > 0 in unsafe set  
         3. {condition_3_desc}
 
-        {"Design a barrier certificate and controller that satisfy all 3 conditions. Be very careful - don't make it more complex than needed." if iteration == 1 else "Design barrier certificate and controller that satisfy all 3 conditions. Learn from previous failures. You can change structure of TEMPLATE if needed. In this step, the goal is to improve the structure of the templates, not refine the parameters." if has_controller else "Design a barrier certificate that satisfies all 3 conditions. Learn from previous failures. You can change structure of TEMPLATE if needed. In this step, the goal is to improve the structure of the templates, not refine the parameters."}
+        {"Be very careful - don't make it more complex than needed." if iteration == 1 else "Learn from previous failures. You can change structure of TEMPLATE if needed. In this step, the goal is to improve the structure of the templates, not refine the parameters." if has_controller else "Design a barrier certificate that satisfies all 3 conditions. Learn from previous failures. You can change structure of TEMPLATE if needed. In this step, the goal is to improve the structure of the templates, not refine the parameters."}
 
         {controller_explanation_2}
 
@@ -512,7 +492,7 @@ class SimplifiedBarrierSynthesis:
             print("="*50)
             # exit()
             if has_controller:
-                barrier_expr, controller_expr = self._extract_barrier_and_controller_from_response(content)
+                barrier_expr, controller_expr = self.extract_barrier_and_controller_from_response(content)
                 
                 if barrier_expr and controller_expr:
                     logger.info(f"Successfully extracted barrier: {barrier_expr}")
@@ -522,7 +502,7 @@ class SimplifiedBarrierSynthesis:
                     logger.warning("Failed to extract barrier and/or controller from response")
                     return None
             else:
-                barrier_expr = self._extract_barrier_from_response(content)
+                barrier_expr = self.extract_barrier_from_response(content)
                 
                 if barrier_expr:
                     logger.info(f"Successfully extracted barrier: {barrier_expr}")
@@ -535,27 +515,27 @@ class SimplifiedBarrierSynthesis:
             logger.error(f"LLM error: {e}")
             return None
     
-    def _prepare_iteration_context(self, iteration: int, has_controller: bool = False) -> str:
+    def prepare_iteration_context(self, iteration: int, has_controller: bool = False) -> str:
         if not self.iteration_history:
             return ""
         
         if has_controller:
             context = "Previous barrier+controller attempts failed:\n"
             for hist in self.iteration_history[-3:]:  # Last 3 iterations max
-                failed_conditions = self._get_failed_conditions(hist.get('verification', {}))
+                failed_conditions = self.get_failed_conditions(hist.get('verification', {}))
                 barrier = hist['barrier']
                 controller = hist.get('controller', 'None')
                 context += f"- Barrier: {barrier}, Controller: {controller} (failed: {failed_conditions})\n"
         else:
             context = "Previous attempts failed:\n"
             for hist in self.iteration_history[-3:]:  # Last 3 iterations max
-                failed_conditions = self._get_failed_conditions(hist.get('verification', {}))
+                failed_conditions = self.get_failed_conditions(hist.get('verification', {}))
                 context += f"- Tried: {hist['barrier']} (failed: {failed_conditions})\n"
         
         context += f"\nImprove the {'barrier+controller' if has_controller else 'barrier'} structure to satisfy all conditions.\n\n"
         return context
 
-    def _get_failed_conditions(self, verification: Dict) -> str:
+    def get_failed_conditions(self, verification: Dict) -> str:
         # get failed conditions
         if not verification or not isinstance(verification, dict):
             return "unknown"
@@ -570,7 +550,7 @@ class SimplifiedBarrierSynthesis:
         
         return ", ".join(failed) if failed else "none"
 
-    def _refine_barrier(self, original_barrier: str, current_barrier: str, problem: Dict[str, Any], 
+    def refine_barrier(self, original_barrier: str, current_barrier: str, problem: Dict[str, Any], 
                    verification: Dict[str, Any], refinement_num: int, 
                    iteration_refinements: List[Dict] = None, has_controller: bool = False,
                    original_controller: str = None, current_controller: str = None):
@@ -584,18 +564,18 @@ class SimplifiedBarrierSynthesis:
         else:
             condition_3_desc = "∇B(x)·f(x) < 0 on boundary"
         
-        failed_conditions = self._get_failed_conditions(verification)
+        failed_conditions = self.get_failed_conditions(verification)
         
         if refinement_num == 1:
             if has_controller:
-                original_failed = self._get_failed_conditions(verification)
+                original_failed = self.get_failed_conditions(verification)
                 refinement_context = f"Original barrier: {original_barrier}, Original controller: {original_controller} (failed: {original_failed})\n"
             else:
-                original_failed = self._get_failed_conditions(verification)
+                original_failed = self.get_failed_conditions(verification)
                 refinement_context = f"Original barrier: {original_barrier} (failed: {original_failed})\n"
         else:
             if has_controller:
-                original_failed = self._get_failed_conditions(verification)
+                original_failed = self.get_failed_conditions(verification)
                 refinement_context = f"Original barrier: {original_barrier}, Original controller: {original_controller} (failed: {original_failed})\n"
                 
                 if iteration_refinements:
@@ -605,7 +585,7 @@ class SimplifiedBarrierSynthesis:
                         ref_failed = ref_data['failed_conditions']
                         refinement_context += f"Refinement {i}: Barrier: {ref_barrier}, Controller: {ref_controller} (failed: {ref_failed})\n"
             else:
-                original_failed = self._get_failed_conditions(verification)
+                original_failed = self.get_failed_conditions(verification)
                 refinement_context = f"Original barrier: {original_barrier} (failed: {original_failed})\n"
                 
                 if iteration_refinements:
@@ -642,7 +622,6 @@ class SimplifiedBarrierSynthesis:
     REFINED_BARRIER: [expression with numbers only]"""
 
         prompt = f"""{refinement_context}
-    This {'barrier+controller combination' if has_controller else 'barrier'} violates: {failed_conditions}
 
     Problem:
     - Dynamics: {problem.get('dynamics')}
@@ -683,7 +662,7 @@ class SimplifiedBarrierSynthesis:
             print("="*50)
             
             if has_controller:
-                refined_barrier, refined_controller = self._extract_refined_barrier_and_controller_from_response(content)
+                refined_barrier, refined_controller = self.extract_refined_barrier_and_controller_from_response(content)
                 
                 if refined_barrier and refined_controller:
                     logger.info(f"Refinement {refinement_num} produced barrier: {refined_barrier}")
@@ -693,7 +672,7 @@ class SimplifiedBarrierSynthesis:
                     logger.warning(f"Failed to extract refined barrier and/or controller from refinement {refinement_num}")
                     return None
             else:
-                refined_expr = self._extract_barrier_from_response(content)
+                refined_expr = self.extract_barrier_from_response(content)
                 
                 if refined_expr:
                     logger.info(f"Refinement {refinement_num} produced: {refined_expr}")
@@ -707,12 +686,12 @@ class SimplifiedBarrierSynthesis:
             return None
     
     
-    def _verify_barrier(self, barrier_expr: str, problem: Dict[str, Any], controller_expr: str = None) -> Optional[Dict[str, Any]]:
+    def verify_barrier(self, barrier_expr: str, problem: Dict[str, Any], controller_expr: str = None) -> Optional[Dict[str, Any]]:
         # verify barrier with gatekeeper + SMT
         try:
             # check dim
-            system_vars = self._extract_system_variables(problem.get('dynamics', ''))
-            barrier_vars = self._extract_barrier_variables(barrier_expr)
+            system_vars = self.extract_system_variables(problem.get('dynamics', ''))
+            barrier_vars = self.extract_barrier_variables(barrier_expr)
             
             missing_vars = set(system_vars) - set(barrier_vars)
             if missing_vars:
@@ -721,10 +700,10 @@ class SimplifiedBarrierSynthesis:
 
             working_problem = problem.copy()
             if controller_expr:
-                controller_dict = self._parse_controller_expressions(controller_expr, problem)
+                controller_dict = parse_controller_expressions(controller_expr, problem)
                 if controller_dict:
                     original_dynamics = problem['dynamics']
-                    closed_loop_dynamics = self._substitute_controller_into_dynamics(original_dynamics, controller_dict)
+                    closed_loop_dynamics = self.substitute_controller_into_dynamics(original_dynamics, controller_dict)
                     working_problem['dynamics'] = closed_loop_dynamics
                     logger.info(f"Using closed-loop dynamics for samples: {closed_loop_dynamics}")
                 else:
@@ -755,7 +734,7 @@ class SimplifiedBarrierSynthesis:
                 logger.warning(f"Sample validation unavailable: {e}")
 
             # SMT verification 
-            smt_validation = get_detailed_condition_results(
+            smt_validation = get_condition_results(
                 barrier_expr,
                 working_problem['initial_set'],
                 working_problem['unsafe_set'], 
@@ -772,7 +751,7 @@ class SimplifiedBarrierSynthesis:
             logger.error(f"Verification error: {e}")
             return None
     
-    def _extract_system_variables(self, dynamics: str) -> List[str]:
+    def extract_system_variables(self, dynamics: str) -> List[str]:
         # extract variables from dynamics
         if not dynamics:
             return []
@@ -788,7 +767,7 @@ class SimplifiedBarrierSynthesis:
             logger.error(f"Failed to extract system variables: {e}")
             return []
 
-    def _extract_barrier_variables(self, barrier_expr: str) -> List[str]:
+    def extract_barrier_variables(self, barrier_expr: str) -> List[str]:
         # extract variables from barrier
         if not barrier_expr:
             return []
@@ -804,7 +783,7 @@ class SimplifiedBarrierSynthesis:
             logger.error(f"Failed to extract barrier variables: {e}")
             return []
 
-    def _extract_barrier_from_response(self, content: str) -> Optional[str]:
+    def extract_barrier_from_response(self, content: str) -> Optional[str]:
         # extract barrier from LLM response
         # Try structured patterns first - in order of priority
         patterns = [
@@ -819,8 +798,8 @@ class SimplifiedBarrierSynthesis:
             matches = re.findall(pattern, content, re.IGNORECASE | re.MULTILINE)
             if matches:
                 expr = matches[0].strip()
-                cleaned = self._clean_expression(expr)
-                if cleaned and self._validate_expression(cleaned):
+                cleaned = self.clean_expression(expr)
+                if cleaned and self.validate_expression(cleaned):
                     return cleaned
 
         # seconde try
@@ -837,13 +816,13 @@ class SimplifiedBarrierSynthesis:
                 re.search(r'\d', line) and
                 not any(word in line.lower() for word in ['barrier', 'certificate', 'template', 'function', 'expression'])):
                 
-                cleaned = self._clean_expression(line)
-                if cleaned and self._validate_expression(cleaned):
+                cleaned = self.clean_expression(line)
+                if cleaned and self.validate_expression(cleaned):
                     return cleaned
         
         return None
 
-    def _clean_expression(self, expr: str) -> str:
+    def clean_expression(self, expr: str) -> str:
         if not expr:
             return ""
         
@@ -896,7 +875,7 @@ class SimplifiedBarrierSynthesis:
         
         return expr
 
-    def _validate_expression(self, expr: str) -> bool:
+    def validate_expression(self, expr: str) -> bool:
         # validate expression
         if not expr or len(expr) < 3:
             return False
@@ -923,7 +902,7 @@ class SimplifiedBarrierSynthesis:
             logger.warning(f"Expression validation error: {e}")
             return False
 
-    def _extract_barrier_and_controller_from_response(self, content: str) -> Tuple[Optional[str], Optional[str]]:
+    def extract_barrier_and_controller_from_response(self, content: str) -> Tuple[Optional[str], Optional[str]]:
         # extract barrier & controller from LLM response
         barrier_patterns = [
             r'BARRIER\s*:\s*(.+?)(?:\n|$)',
@@ -935,7 +914,7 @@ class SimplifiedBarrierSynthesis:
         r'CONTROLLER\s*:\s*([\s\S]+?)(?:\n\n|\n[A-Z]|$)',  # match until double newline or capital letter line
         r'CONTROL\s*:\s*([\s\S]+?)(?:\n\n|\n[A-Z]|$)',
         # r'u\s*=\s*(.+?)(?:\n|$)'
-    ]
+        ]
         
         barrier_expr = None
         controller_expr = None
@@ -945,8 +924,8 @@ class SimplifiedBarrierSynthesis:
             matches = re.findall(pattern, content, re.IGNORECASE | re.MULTILINE)
             if matches:
                 expr = matches[0].strip()
-                cleaned = self._clean_expression(expr)
-                if cleaned and self._validate_expression(cleaned):
+                cleaned = self.clean_expression(expr)
+                if cleaned and self.validate_expression(cleaned):
                     barrier_expr = cleaned
                     break
         
@@ -955,14 +934,14 @@ class SimplifiedBarrierSynthesis:
             matches = re.findall(pattern, content, re.IGNORECASE | re.MULTILINE)
             if matches:
                 expr = matches[0].strip()
-                cleaned = self._clean_controller_expression(expr)
+                cleaned = self.clean_controller_expression(expr)
                 if cleaned:
                     controller_expr = cleaned
                     break
         
         return barrier_expr, controller_expr
 
-    def _extract_refined_barrier_and_controller_from_response(self, content: str) -> Tuple[Optional[str], Optional[str]]:
+    def extract_refined_barrier_and_controller_from_response(self, content: str) -> Tuple[Optional[str], Optional[str]]:
         # extract refined barrier & controller from LLM response
         barrier_patterns = [
             r'REFINED_BARRIER\s*:\s*(.+?)(?:\n|$)',
@@ -981,8 +960,8 @@ class SimplifiedBarrierSynthesis:
             matches = re.findall(pattern, content, re.IGNORECASE | re.MULTILINE)
             if matches:
                 expr = matches[0].strip()
-                cleaned = self._clean_expression(expr)
-                if cleaned and self._validate_expression(cleaned):
+                cleaned = self.clean_expression(expr)
+                if cleaned and self.validate_expression(cleaned):
                     barrier_expr = cleaned
                     break
         
@@ -991,14 +970,14 @@ class SimplifiedBarrierSynthesis:
             matches = re.findall(pattern, content, re.IGNORECASE | re.MULTILINE)
             if matches:
                 expr = matches[0].strip()
-                cleaned = self._clean_controller_expression(expr)
+                cleaned = self.clean_controller_expression(expr)
                 if cleaned:
                     controller_expr = cleaned
                     break
         
         return barrier_expr, controller_expr
 
-    def _clean_controller_expression(self, expr: str) -> str:
+    def clean_controller_expression(self, expr: str) -> str:
         """Clean controller expression"""
         if not expr:
             return ""
@@ -1029,45 +1008,7 @@ class SimplifiedBarrierSynthesis:
         
         return expr
 
-    def _parse_controller_expressions(self, controller_expr: str, problem: Dict[str, Any]) -> Dict[str, str]:
-        try:
-            controller_dict = {}
-            controller_params = [p.strip() for p in problem.get('controller_parameters', '').split(',') if p.strip()]
-            
-            if not controller_params:
-                return {}
-            
-            expressions = [eq.strip() for eq in controller_expr.split(',') if eq.strip()]
-            
-            for i, expr in enumerate(expressions):
-                expr = expr.strip()
-                if '=' in expr:
-                    # format: param = expression
-                    param_name, param_expr = expr.split('=', 1)
-                    param_name = param_name.strip()
-                    param_expr = param_expr.strip()
-                else:
-                    if i < len(controller_params):
-                        param_name = controller_params[i]
-                        param_expr = expr
-                    else:
-                        continue
-                
-                # clean the expression
-                param_expr = re.sub(r'\s+', ' ', param_expr)
-                param_expr = re.sub(r'\s*\+\s*', ' + ', param_expr)
-                param_expr = re.sub(r'\s*-\s*', ' - ', param_expr)
-                param_expr = re.sub(r'\s*\*\s*', '*', param_expr)
-                
-                controller_dict[param_name] = param_expr
-                
-            return controller_dict
-            
-        except Exception as e:
-            logger.error(f"Failed to parse controller expressions: {e}")
-            return {}
-
-    def _substitute_controller_into_dynamics(self, dynamics_str: str, controller_dict: Dict[str, str]) -> str:
+    def substitute_controller_into_dynamics(self, dynamics_str: str, controller_dict: Dict[str, str]) -> str:
         # substitute controller expressions into dynamics string to create closed-loop dynamics
         try:
             if not controller_dict:
@@ -1101,9 +1042,9 @@ class SimplifiedBarrierSynthesis:
             
         except Exception as e:
             logger.error(f"Failed to substitute controller into dynamics: {e}")
-            return dynamics_str  
+            return None
 
-    def _add_to_history(self, iteration: int, barrier: str, score: int, verification=None, controller: str = None):
+    def add_to_history(self, iteration: int, barrier: str, score: int, verification=None, controller: str = None):
         entry = {
             'iteration': iteration,
             'barrier': barrier,
@@ -1122,152 +1063,25 @@ if __name__ == "__main__":
 
     #================================ Continuous-Time Systems ==================================#
 
+    
     test_problem = {
-        "dynamics": "dx1/dt = 2*(x2 - x1) + 0.7*x4 + u0, dx2/dt = 1.5*x1 - x2 - x1*x3 + u1, dx3/dt = x1*x2 - 1.5*x3 + u2, dx4/dt = -x1 - 1.5*x4 + u3",
+        "dynamics": "dx1/dt = -0.7*x1 + 0.1*x2, dx2/dt = -0.1*x1 - 0.8*x2, dx3/dt = -0.05*x1 - 1.0*x3, dx4/dt = -0.03*x2 - 1.1*x4",
         "initial_set": {
           "type": "ball",
-          "radius": 0.2,
+          "radius": 0.7,
           "center": [0, 0, 0, 0]
         },
         "unsafe_set": {
           "type": "ball",
-          "radius": 4.0,
+          "radius": 2.8,
           "center": [0, 0, 0, 0],
           "complement": True
-        },
-        "controller_parameters": "u0, u1, u2, u3"
-      }
-
-    # test_problem = {
-    #     "dynamics": "dx1/dt = x2 + u0, dx2/dt = -x1 + x2*x3 + u1, dx3/dt = 1 - x2**2 + u2",
-    #     "initial_set": {
-    #       "type": "ball",
-    #       "radius": 0.4,
-    #       "center": [0, 0, 0]
-    #     },
-    #     "unsafe_set": {
-    #       "type": "ball",
-    #       "radius": 3.0,
-    #       "center": [0, 0, 0],
-    #       "complement": True
-    #     },
-    #     "controller_parameters": "u0, u1, u2"
-    #   }
-
-    # test_problem = {
-    #     "dynamics": "dx1/dt = -0.5*x1 + x2*x3 + u0, dx2/dt = -0.5*x2 + x3*(x1 - 1) + u1, dx3/dt = 1 - x1*x2 + u2",
-    #     "initial_set": {
-    #       "type": "ball",
-    #       "radius": 0.3,
-    #       "center": [0, 0, 0]
-    #     },
-    #     "unsafe_set": {
-    #       "type": "ball",
-    #       "radius": 3.5,
-    #       "center": [0, 0, 0],
-    #       "complement": True
-    #     },
-    #     "controller_parameters": "u0, u1, u2"
-    #   }
-
-    # test_problem = {
-    #     "dynamics": "dx1/dt = -0.1*(x1 - 20) + 0.05*(x2 - x1) + u0, dx2/dt = -0.08*(x2 - 18) + 0.03*(x1 - x2) + u1",
-    #     "initial_set": {
-    #       "type": "bounds",
-    #       "bounds": [[19.5, 20.5], [17.8, 18.2]]
-    #     },
-    #     "unsafe_set": {
-    #       "type": "bounds",
-    #       "bounds": [[25, 30], [25, 30]],
-    #       "complement": False
-    #     },
-    #     "controller_parameters": "u0, u1"
-    #   }
-
-
-    # test_problem = {
-    #     "dynamics": "dx1/dt = x2 + u0, dx2/dt = -0.6*x1 - 0.1*x2 + 0.05*x3 + u1, dx3/dt = x4 + u2, dx4/dt = -0.8*x3 - 0.15*x4 + 0.05*x1 + u3",
-    #     "initial_set": {
-    #       "type": "ball",
-    #       "radius": 0.6,
-    #       "center": [0, 0, 0, 0]
-    #     },
-    #     "unsafe_set": {
-    #       "type": "ball",
-    #       "radius": 3.5,
-    #       "center": [0, 0, 0, 0],
-    #       "complement": True
-    #     },
-    #     "controller_parameters": "u0, u1, u2, u3"
-    #   }
-
-    # test_problem = {
-    #     "dynamics": "dx1/dt = -0.2*x1 + 0.3*x2*sin(x1) + u0, dx2/dt = -0.3*x2 + 0.2*x1*cos(x2) - 0.1*x1**2*x2 + u1",
-    #     "initial_set": {
-    #       "type": "ball",
-    #       "radius": 0.5,
-    #       "center": [0, 0]
-    #     },
-    #     "unsafe_set": {
-    #       "type": "ball",
-    #       "radius": 3.5,
-    #       "center": [0, 0],
-    #       "complement": True
-    #     },
-    #     "controller_parameters": "u0, u1"
-    #   }
-
-    #======================================== Discrete-Time Systems ========================================#
-
-    # test_problem = { # x1**2 + x2**2 - 4.0
-    #     "dynamics": "x1[k+1] = 0.9*x1[k], x2[k+1] = 0.8*x2[k]",
-    #     "initial_set": {
-    #       "type": "ball",
-    #       "radius": 1.0,
-    #       "center": [0, 0]
-    #     },
-    #     "unsafe_set": {
-    #       "type": "ball",
-    #       "radius": 3.0,
-    #       "center": [0, 0],
-    #       "complement": True
-    #     }
-    #   }
-
-    # test_problem = { # x1**2 + x2**2 - 1.5
-    #     "dynamics": "x1[k+1] = 0.95*x1[k] + 0.1*x2[k], x2[k+1] = -0.1*x1[k] + 0.95*x2[k]",
-    #     "initial_set": {
-    #         "type": "ball",
-    #         "radius": 0.5,
-    #         "center": [0, 0]
-    #     },
-    #     "unsafe_set": {
-    #         "type": "ball",
-    #         "radius": 2.0,
-    #         "center": [0, 0],
-    #         "complement": True
-    #     }
-    # }
-
-    # test_problem = { 
-    #     "dynamics": "x1[k+1] = 0.8*x1[k] + 0.1*x1[k]**2 + 0.05*x2[k] + u0[k], x2[k+1] = 0.7*x2[k] + 0.1*x1[k]*x2[k] + u1[k]",
-    #     "initial_set": {
-    #       "type": "bounds",
-    #       "bounds": [[-0.3, 0.3], [-0.2, 0.4]]
-    #     },
-    #     "unsafe_set": {
-    #       "type": "ball",
-    #       "radius": 2.5,
-    #       "center": [0, 0],
-    #       "complement": True
-    #     },
-    #     "controller_parameters": "u0, u1"
-    #   }
-
+        }
+    }
 
     api_key = "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"
     
-    synthesizer = SimplifiedBarrierSynthesis(
+    synthesizer = BarrierSynthesis(
         api_key=api_key,
         max_iterations=5,
         dataset_json_path="barrier_dataset.json"

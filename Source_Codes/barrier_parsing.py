@@ -1,6 +1,5 @@
-import numpy as np
 import sympy as sp
-from typing import Dict, List, Tuple, Optional, Union, Any
+from typing import List, Tuple, Optional
 import re
 import logging
 
@@ -17,7 +16,7 @@ def clean_and_extract_barrier(barrier_str: str) -> str:
         barrier_str = re.sub(r'B\(x\)\s*=\s*', '', barrier_str, flags=re.IGNORECASE)
         barrier_str = re.sub(r'barrier\s*certificate\s*:?\s*', '', barrier_str, flags=re.IGNORECASE)
         
-        # unicode handling
+        # unicode subscripts handling
         unicode_subscripts = {
             '₀': '0', '₁': '1', '₂': '2', '₃': '3', '₄': '4',
             '₅': '5', '₆': '6', '₇': '7', '₈': '8', '₉': '9'
@@ -25,14 +24,14 @@ def clean_and_extract_barrier(barrier_str: str) -> str:
         for unicode_char, ascii_char in unicode_subscripts.items():
             barrier_str = barrier_str.replace(unicode_char, ascii_char)
         
-        # unicode superscripts to **  
+        # unicode superscripts handling 
         unicode_superscripts = {
             '²': '**2', '³': '**3', '⁴': '**4', '⁵': '**5',
             '⁶': '**6', '⁷': '**7', '⁸': '**8', '⁹': '**9'
         }
         for unicode_char, ascii_notation in unicode_superscripts.items():
             barrier_str = barrier_str.replace(unicode_char, ascii_notation)
-        
+            
         # LaTeX escape characters
         barrier_str = barrier_str.replace('\\\\', '\\').replace('\\ ', ' ')
         
@@ -68,13 +67,13 @@ def clean_and_extract_barrier(barrier_str: str) -> str:
         barrier_str = re.sub(r'\s+', ' ', barrier_str)
         
         # balance parentheses
-        barrier_str = _balance_parentheses(barrier_str)
+        barrier_str = balance_parentheses(barrier_str)
         
         # trailing operators
         barrier_str = re.sub(r'[+\-\*]+\s*$', '', barrier_str).strip()
         
         # extract mathematical expression
-        extracted_expr = _extract_mathematical_expression(barrier_str)
+        extracted_expr = extract_mathematical_expression(barrier_str)
         
         if extracted_expr:
             barrier_str = extracted_expr
@@ -87,7 +86,7 @@ def clean_and_extract_barrier(barrier_str: str) -> str:
             barrier_str = re.sub(f'x₍{i}₎', f'x{i}', barrier_str)
         
         # one more parentheses balance check
-        barrier_str = _balance_parentheses(barrier_str)
+        barrier_str = balance_parentheses(barrier_str)
         
         # check basic structure including variables x1-x10
         if len(barrier_str) < 3 or not (re.search(r'x\d+', barrier_str) or re.search(r'(?:sin|cos)\(', barrier_str)):
@@ -105,36 +104,30 @@ def clean_and_extract_barrier(barrier_str: str) -> str:
         logger.warning(f"Error cleaning barrier '{barrier_str}': {e}")
         return ""
 
-
-def _balance_parentheses(expression: str) -> str:
+def balance_parentheses(expression: str) -> str:
     # balance parentheses
-    try:
-        open_parens = expression.count('(')
-        close_parens = expression.count(')')
-        
-        if open_parens == close_parens:
-            return expression
-        
-        if open_parens > close_parens:
-            missing_close = open_parens - close_parens
-            expression += ')' * missing_close
-            logger.info(f"Added {missing_close} missing closing parentheses")
-        elif close_parens > open_parens:
-            extra_close = close_parens - open_parens
-            for _ in range(extra_close):
-                last_close_idx = expression.rfind(')')
-                if last_close_idx != -1:
-                    expression = expression[:last_close_idx] + expression[last_close_idx+1:]
-            logger.info(f"Removed {extra_close} extra closing parentheses")
-        
-        return expression
-        
-    except Exception as e:
-        logger.warning(f"Error balancing parentheses in '{expression}': {e}")
-        return expression
 
+    open_parens = expression.count('(')
+    close_parens = expression.count(')')
+    
+    if open_parens == close_parens:
+        return expression
+    
+    if open_parens > close_parens:
+        missing_close = open_parens - close_parens
+        expression += ')' * missing_close
+        logger.info(f"Added {missing_close} missing closing parentheses")
+    elif close_parens > open_parens:
+        extra_close = close_parens - open_parens
+        for _ in range(extra_close):
+            last_close_idx = expression.rfind(')')
+            if last_close_idx != -1:
+                expression = expression[:last_close_idx] + expression[last_close_idx+1:]
+        logger.info(f"Removed {extra_close} extra closing parentheses")
+    
+    return expression
 
-def _extract_mathematical_expression(text: str) -> str:
+def extract_mathematical_expression(text: str) -> str:
     # extract mathematical expression
     try:
         math_patterns = [
@@ -159,9 +152,9 @@ def _extract_mathematical_expression(text: str) -> str:
                     (re.search(r'x\d+', extracted) or re.search(r'(?:sin|cos)\(', extracted)) and
                     len(extracted) > best_length):
                     
-                    balanced_extracted = _balance_parentheses(extracted)
+                    balanced_extracted = balance_parentheses(extracted)
                     
-                    if _validate_trigonometric_syntax(balanced_extracted):
+                    if validate_trigonometric_syntax(balanced_extracted):
                         best_match = balanced_extracted
                         best_length = len(balanced_extracted)
                         logger.info(f"Found better match: '{balanced_extracted}' (length: {best_length})")
@@ -176,8 +169,7 @@ def _extract_mathematical_expression(text: str) -> str:
         logger.warning(f"Error extracting mathematical expression from '{text}': {e}")
         return text
 
-
-def _validate_trigonometric_syntax(expression: str) -> bool:
+def validate_trigonometric_syntax(expression: str) -> bool:
     try:
         trig_functions = re.findall(r'(?:sin|cos)\([^)]*\)', expression)
         
@@ -203,9 +195,8 @@ def _validate_trigonometric_syntax(expression: str) -> bool:
         return True
         
     except Exception as e:
-        logger.warning(f"Error validating trigonometric syntax in '{expression}': {e}")
-        return True
-
+        logger.warning(f"Error validating trigonometric syntax in '{expression}': {e}") 
+        return False
 
 def parse_barrier_certificate(barrier_str: str) -> Tuple[Optional[sp.Expr], List[sp.Symbol]]:
     # parse barrier certificate string into symbolic expression
@@ -224,7 +215,8 @@ def parse_barrier_certificate(barrier_str: str) -> Tuple[Optional[sp.Expr], List
             if trig_vars:
                 variables = sorted(set(trig_vars), key=lambda x: int(x[1:]))
             else:
-                variables = ['x1', 'x2']  # default
+                logger.error(f"No variables found in barrier expression")
+                return None, []
         
         var_symbols = [sp.Symbol(var, real=True) for var in variables]
         
@@ -262,32 +254,3 @@ def parse_barrier_certificate(barrier_str: str) -> Tuple[Optional[sp.Expr], List
     except Exception as e:
         logger.error(f"Error parsing barrier certificate '{barrier_str}': {e}")
         return None, []
-
-
-def _evaluate_expression(expr: sp.Expr, variables: List[sp.Symbol], point: List[float]) -> float:
-    try:
-        subs_dict = dict(zip(variables, point[:len(variables)]))
-        value = expr.subs(subs_dict)
-        if hasattr(value, "evalf"):
-            result = float(value.evalf())
-            return result
-        return float(value)
-    except Exception as e:
-        try:
-            expr_str = str(expr)
-            for var, val in subs_dict.items():
-                expr_str = expr_str.replace(str(var), str(val))
-            safe_dict = {
-                "__builtins__": {},
-                "sin": math.sin,
-                "cos": math.cos,
-                "tan": math.tan,
-                "exp": math.exp,
-                "sqrt": math.sqrt,
-                "abs": abs,
-                "pi": math.pi,
-            }
-            return float(eval(expr_str, safe_dict))
-        except Exception as e2:
-            logger.warning(f"Expression evaluation failed for {expr}: {e2}")
-            return float("nan")

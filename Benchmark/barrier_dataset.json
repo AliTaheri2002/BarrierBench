@@ -42,7 +42,7 @@
     },
     {
       "problem": {
-        "dynamics": "dx1/dt = x2 + u0, dx2/dt = -0.05*sin(x1) - 0.02*x2 + 0.01*x3 + u1, dx3/dt = -0.1*x3 + 0.02*x1 + u2, dx4/dt = -0.03*x4 + 0.01*x2 + u3",
+        "dynamics": "dx1/dt = x2 + u0, dx2/dt = -0.95*sin(x1) - 0.02*x2 + 0.01*x3 + u1, dx3/dt = -0.1*x3 + 0.02*x1 + u2, dx4/dt = -0.03*x4 + 0.01*x2 + u3",
         "initial_set": {
           "type": "ball",
           "radius": 0.3,
@@ -57,7 +57,7 @@
         "controller_parameters": "u0, u1, u2, u3"
       },
       "barrier": "x1**2 + x2**2 + x3**2 + x4**2 - 4.0",
-      "controllers": "u0=-0.6*x1 - 0.15*x3, u1=-0.6*x2 - 0.15*x1, u2=-0.5*x3 - 0.1*x1, u3=-0.5*x4 - 0.1*x2",
+      "controllers": "u0 = -3*x1 - 1.5*x2, u1 = -3*x2 + 0.8*sin(x1), u2 = -3*x3 - 0.05*x1, u3 = -3*x4 - 0.02*x2",
       "template_type": "llm_generated_with_controller"
     },
     {
@@ -306,7 +306,7 @@
           "complement": true
         }
       },
-      "barrier": "0.1*x1**4 + 0.1*x2**4 + 0.05*x1**2*x2**2 + x1**2 + x2**2 - 9",
+      "barrier": "x1**2 + x2**2 - 5",
       "template_type": "llm_generated"
     },
     {
@@ -415,24 +415,6 @@
         }
       },
       "barrier": "x1**2 + x2**2 + x3**2 - 4",
-      "template_type": "llm_generated"
-    },
-    {
-      "problem": {
-        "dynamics": "dx1/dt = -x1, dx2/dt = -x2",
-        "initial_set": {
-          "type": "ball",
-          "radius": 0.5,
-          "center": [0, 0]
-        },
-        "unsafe_set": {
-          "type": "ball",
-          "radius": 1.5,
-          "center": [0, 0],
-          "complement": true
-        }
-      },
-      "barrier": "x1**2 + x2**2 - 1",
       "template_type": "llm_generated"
     },
     {
@@ -661,26 +643,6 @@
       },
       "barrier": "x1**2 + x2**2 - 4",
       "template_type": "llm_generated"
-    },
-    {
-      "problem": {
-        "dynamics": "dx1/dt = -5*x1 - 4*x2 + u0, dx2/dt = -x1 - 2*x2 + u1",
-        "initial_set": {
-          "type": "ball",
-          "radius": 1.0,
-          "center": [0, 0]
-        },
-        "unsafe_set": {
-          "type": "ball",
-          "radius": 3.0,
-          "center": [0, 0],
-          "complement": true
-        },
-        "controller_parameters": "u0, u1"
-      },
-      "barrier": "x1**2 + x2**2 - 4",
-      "controllers": "u0=-6*x1 - 3*x2, u1=-3*x1 - 6*x2",
-      "template_type": "llm_generated_with_controller"
     },
     {
       "problem": {
@@ -1472,6 +1434,22 @@
     },
     {
       "problem": {
+        "dynamics": "dx1/dt = -0.005*x1 - 0.1",
+        "initial_set": {
+          "type": "bounds",
+          "bounds": [[17, 18]]
+        },
+        "unsafe_set": {
+          "type": "bounds",
+          "bounds": [[19, 20]],
+          "complement": false
+        }
+      },
+      "barrier": "x1 - 18.5",
+      "template_type": "llm_generated"
+    },
+    {
+      "problem": {
         "dynamics": "dx1/dt = x3 + x2*x1 + u0, dx2/dt = -x2 - x1**2 + u1, dx3/dt = -x1 - 0.5*x3 + u2",
         "initial_set": {
           "type": "ball",
@@ -1587,11 +1565,11 @@
       },
       "barrier": "x1**2 + x2**2 - 4.0",
       "controllers": "",
-      "template_type": "discrete_linear_no_controller"
+      "template_type": "llm_generated"
     },
     {
       "problem": {
-        "dynamics": "x1[k+1] = 0.95*x1[k] + 0.1*x2[k], x2[k+1] = -0.1*x1[k] + 0.95*x2[k]",
+        "dynamics": "x1[k+1] = 0.95*x1[k] + 0.1*x2[k] + u0[k], x2[k+1] = -0.1*x1[k] + 0.95*x2[k] + u1[k]",
         "initial_set": {
           "type": "ball",
           "radius": 0.5,
@@ -1602,11 +1580,30 @@
           "radius": 2,
           "center": [0, 0],
           "complement": true
-        }
+        },
+        "controller_parameters": "u0, u1"
       },
-      "barrier": "x1**2 + x2**2 - 1.5",
-      "controllers": "",
-      "template_type": "discrete_linear_coupled_no_controller"
+      "barrier": "x1**2 + x2**2 - 3.5",
+      "controllers": "u0 = -0.8*x1, u1 = -0.8*x2",
+      "template_type": "llm_generated"
+    },
+    {
+      "problem": {
+        "dynamics": "x1[k+1] = x1[k] + 0.01*(-100*x1[k] - x2[k]) + u0[k], x2[k+1] = x2[k] + 0.01*(x1[k] - 100*x2[k]) + u1[k]",
+        "initial_set": {
+          "type": "bounds",
+          "bounds": [[0.1, 0.4], [0.1, 0.55]]
+        },
+        "unsafe_set": {
+          "type": "bounds",
+          "bounds": [[0.45, 0.5], [0.6, 1]],
+          "complement": false
+        },
+        "controller_parameters": "u0, u1"
+      },
+      "barrier": "x1**2 + x2**2 - 0.5",
+      "controllers": "u0 = -0.3*x1 - 0.2*x2, u1 = -0.2*x1 - 0.4*x2",
+      "template_type": "llm_generated_with_controller"
     },
     {
       "problem": {
@@ -1625,7 +1622,7 @@
       },
       "barrier": "x1**2 + x2**2 - 0.5",
       "controllers": "u0 = -0.2*x1 - 0.1*x1**2 - 0.05*x2, u1 = -0.1*x2 - 0.1*x1*x2",
-      "template_type": "discrete_nonlinear_with_controller"
+      "template_type": "llm_generated_with_controller"
     },
     {
       "problem": {
@@ -1642,8 +1639,8 @@
         "controller_parameters": "u0, u1"
       },
       "barrier": "x1 + x2 - 0.9",
-      "controllers": "-x1*(2.2 - 3.2*x1) - 0.1, -x2*(1.8 - 2.8*x2) - 0.1",
-      "template_type": "discrete_logistic_with_controller"
+      "controllers": "u0 = -x1*(2.2 - 3.2*x1) - 0.1, u1 = -x2*(1.8 - 2.8*x2) - 0.1",
+      "template_type": "llm_generated_with_controller"
     },
     {
       "problem": {
@@ -1661,8 +1658,8 @@
         "controller_parameters": "u0, u1"
       },
       "barrier": "x1**2 + x2**2 - 1.0",
-      "controllers": "-1 + 1.4*x1**2 - 0.5*x2, -0.3*x1 - 0.5*x2",
-      "template_type": "discrete_henon_map_with_controller"
+      "controllers": "u0 = -1 + 1.4*x1**2 - 0.5*x2, u1 = -0.3*x1 - 0.5*x2",
+      "template_type": "llm_generated_with_controller"
     },
     {
       "problem": {
@@ -1679,7 +1676,7 @@
       },
       "barrier": "x1**2 + x2**2 - 0.5",
       "controllers": "",
-      "template_type": "discrete_oscillator_no_controller"
+      "template_type": "llm_generated"
     },
     {
       "problem": {
@@ -1696,8 +1693,8 @@
         "controller_parameters": "u0, u1"
       },
       "barrier": "x1 + x2 - 0.9",
-      "controllers": "x1 - 2.3*sin(x1) - 0.5, 0.1*x2 - 0.1*sin(x1) - 0.2",
-      "template_type": "discrete_trigonometric_with_controller"
+      "controllers": "u0 = x1 - 2.3*sin(x1) - 0.5, u1 = 0.1*x2 - 0.1*sin(x1) - 0.2",
+      "template_type": "llm_generated_with_controller"
     },
     {
       "problem": {
@@ -1715,7 +1712,7 @@
       },
       "barrier": "x1 + x2 - 1.2",
       "controllers": "u0 = -1.2*sin(x1) + x1 - 0.05, u1 = 0.12*x2 - 0.05",
-      "template_type": "discrete_sparse_coupling_with_controller"
+      "template_type": "llm_generated_with_controller"
     }
   ],
   "unsolved_problems": [
@@ -1757,17 +1754,15 @@
     },
     {
       "problem": {
-        "dynamics": "dx1/dt = -0.3*x1 + 0.2*sin(x2)*exp(-x3**2), dx2/dt = -0.4*x2 + 0.15*cos(x1)*exp(-x1**2), dx3/dt = -0.5*x3 + 0.1*sin(x1 + x2)",
+        "dynamics": "dx1/dt = x2, dx2/dt = x3, dx3/dt = x4, dx4/dt = x5, dx5/dt = x6, dx6/dt = x7, dx7/dt = x8, dx8/dt = -20*x8 - 170*x7 - 800*x6 - 2273*x5 - 3980*x4 - 4180*x3 - 2400*x2 - 576*x1",
         "initial_set": {
-          "type": "ball",
-          "radius": 0.45,
-          "center": [0, 0, 0]
+            "type": "bounds",
+            "bounds": [[0.9, 1.1], [0.9, 1.1], [0.9, 1.1], [0.9, 1.1], [0.9, 1.1], [0.9, 1.1], [0.9, 1.1], [0.9, 1.1]]
         },
         "unsafe_set": {
-          "type": "ball",
-          "radius": 3.2,
-          "center": [0, 0, 0],
-          "complement": true
+            "type": "bounds",
+            "bounds": [[-2.2, -1.8], [-2.2, -1.8], [-2.2, -1.8], [-2.2, -1.8], [-2.2, -1.8], [-2.2, -1.8], [-2.2, -1.8], [-2.2, -1.8]],
+            "complement": false
         }
       },
       "barrier": null,

@@ -1,32 +1,29 @@
-import numpy as np
 import sympy as sp
-from typing import Dict, List, Tuple, Optional, Union, Any
+from typing import Dict, List, Union, Any
 import re
 import logging
 import z3
+import time
 from barrier_parsing import parse_barrier_certificate, clean_and_extract_barrier
 
 logger = logging.getLogger(__name__)
-
 
 
 def verify_barrier_conditions_smt(barrier_expr: sp.Expr, variables: List[sp.Symbol], 
                                 initial_set: Dict, unsafe_set: Dict, 
                                 dynamics: Union[str, Dict, List]) -> Dict[str, Any]:
     # SMT-based verification 
-
+    MAX = 3
     
-    max_retries = 3
-    
-    for retry_attempt in range(max_retries):
+    logger.info(f"Starting formal SMT verification.")
+    for i in range(MAX):
         try:
-            logger.info(f"Starting formal SMT verification (attempt {retry_attempt + 1}/{max_retries})...")
             
             z3_vars = {}
             for var in variables:
                 z3_vars[str(var)] = z3.Real(str(var))
             
-            barrier_z3 = _sympy_to_z3_with_retry(barrier_expr, z3_vars)
+            barrier_z3 = convert_sympy_to_z3(barrier_expr, z3_vars)
             
             results = {
                 'condition_1': False,
@@ -38,19 +35,19 @@ def verify_barrier_conditions_smt(barrier_expr: sp.Expr, variables: List[sp.Symb
             
             # Condition 1
             logger.info("Checking Condition 1: B(x) ≤ 0 for all x ∈ X₀")
-            cond1_result = _verify_initial_condition_z3_with_retry(barrier_z3, z3_vars, initial_set)
+            cond1_result = verify_initial_condition(barrier_z3, z3_vars, initial_set)
             results['condition_1'] = cond1_result['satisfied']
             results['verification_details']['condition_1'] = cond1_result
             
             # Condition 2
             logger.info("Checking Condition 2: B(x) > 0 for all x ∈ Xᵘ")
-            cond2_result = _verify_unsafe_condition_z3_with_retry(barrier_z3, z3_vars, unsafe_set)
+            cond2_result = verify_unsafe_condition(barrier_z3, z3_vars, unsafe_set)
             results['condition_2'] = cond2_result['satisfied']
             results['verification_details']['condition_2'] = cond2_result
             
             # Condition 3
             logger.info("Checking Condition 3: ∇B(x)·f(x) < 0 for all x where B(x) = 0")
-            cond3_result = _verify_invariance_condition_z3_with_retry(barrier_expr, barrier_z3, z3_vars, dynamics)
+            cond3_result = verify_invariance_condition(barrier_expr, barrier_z3, z3_vars, dynamics)
             results['condition_3'] = cond3_result['satisfied']
             results['verification_details']['condition_3'] = cond3_result
             
@@ -73,25 +70,20 @@ def verify_barrier_conditions_smt(barrier_expr: sp.Expr, variables: List[sp.Symb
             return results
             
         except Exception as e:
-            logger.warning(f"SMT verification attempt {retry_attempt + 1}/{max_retries} failed: {e}")
-            if retry_attempt < max_retries - 1:
-                import time
-                wait_time = 2 ** retry_attempt
-                logger.info(f"Retrying SMT verification in {wait_time} seconds...")
-                time.sleep(wait_time)
+            if i < MAX - 1:
+                time.sleep(10*i)
             else:
-                logger.error(f"SMT verification failed after {max_retries} attempts")
-                raise RuntimeError(f"SMT verification failed after {max_retries} retry attempts: {e}")
+                raise RuntimeError(f"SMT verification failed after {MAX} retry attempts: {e}")
 
-
-def _sympy_to_z3_with_retry(sympy_expr: sp.Expr, z3_vars: Dict):
+def convert_sympy_to_z3(sympy_expr: sp.Expr, z3_vars: Dict):
     # convert SymPy expression to Z3
-    max_retries = 3
+    MAX = 3
     
-    for retry_attempt in range(max_retries):
+    logger.info(f"Converting expression to Z3 format.")
+
+    for i in range(MAX):
         try:
             expr_str = str(sympy_expr)
-            logger.info(f"Converting expression (attempt {retry_attempt + 1}): {expr_str}")
             
             namespace = {
                 **z3_vars,
@@ -161,23 +153,20 @@ def _sympy_to_z3_with_retry(sympy_expr: sp.Expr, z3_vars: Dict):
             return z3_expr
             
         except Exception as e:
-            logger.warning(f"Z3 conversion attempt {retry_attempt + 1}/{max_retries} failed: {e}")
-            if retry_attempt < max_retries - 1:
+            if i < MAX - 1:
                 continue
             else:
-                logger.error(f"Z3 conversion failed after {max_retries} attempts")
-                raise RuntimeError(f"Cannot convert expression to Z3 after {max_retries} retry attempts: {e}")
+                raise RuntimeError(f"Cannot convert expression to Z3 after {MAX} retry attempts: {e}")
 
-
-def _verify_initial_condition_z3_with_retry(barrier_z3, z3_vars: Dict, initial_set: Dict) -> Dict[str, Any]:
+def verify_initial_condition(barrier_z3, z3_vars: Dict, initial_set: Dict) -> Dict[str, Any]:
     # verify B(x) ≤ 0 for all x in initial set using Z3
-    max_retries = 3
+    MAX = 3
     
-    for retry_attempt in range(max_retries):
+    for i in range(MAX):
         try:
             solver = z3.Solver()
             
-            initial_constraints = _get_set_constraints_z3(initial_set, z3_vars)
+            initial_constraints = get_set_constraints(initial_set, z3_vars)
             for constraint in initial_constraints:
                 solver.add(constraint)
             
@@ -203,29 +192,26 @@ def _verify_initial_condition_z3_with_retry(barrier_z3, z3_vars: Dict, initial_s
                     'counterexample': counterexample
                 }
             else:
-                if retry_attempt < max_retries - 1:
-                    logger.warning(f"Z3 initial condition check returned unknown, retrying...")
+                if i < MAX - 1:
                     continue
                 else:
                     raise RuntimeError("Z3 solver returned unknown result after all retries")
                     
         except Exception as e:
-            logger.warning(f"Z3 initial condition verification attempt {retry_attempt + 1}/{max_retries} failed: {e}")
-            if retry_attempt < max_retries - 1:
+            if i < MAX - 1:
                 continue
             else:
-                raise RuntimeError(f"Z3 initial condition verification failed after {max_retries} attempts: {e}")
+                raise RuntimeError(f"Z3 initial condition verification failed after {MAX} attempts: {e}")
 
-
-def _verify_unsafe_condition_z3_with_retry(barrier_z3, z3_vars: Dict, unsafe_set: Dict) -> Dict[str, Any]:
+def verify_unsafe_condition(barrier_z3, z3_vars: Dict, unsafe_set: Dict) -> Dict[str, Any]:
     # verify B(x) > 0 for all x in unsafe set using Z3
-    max_retries = 3
+    MAX = 3
     
-    for retry_attempt in range(max_retries):
+    for i in range(MAX):
         try:
             solver = z3.Solver()
             
-            unsafe_constraints = _get_set_constraints_z3(unsafe_set, z3_vars)
+            unsafe_constraints = get_set_constraints(unsafe_set, z3_vars)
             for constraint in unsafe_constraints:
                 solver.add(constraint)
             
@@ -250,42 +236,30 @@ def _verify_unsafe_condition_z3_with_retry(barrier_z3, z3_vars: Dict, unsafe_set
                     'counterexample': counterexample
                 }
             else:
-                if retry_attempt < max_retries - 1:
-                    logger.warning(f"Z3 unsafe condition check returned unknown, retrying...")
+                if i < MAX - 1:
                     continue
                 else:
                     raise RuntimeError("Z3 solver returned unknown result after all retries")
                     
         except Exception as e:
-            logger.warning(f"Z3 unsafe condition verification attempt {retry_attempt + 1}/{max_retries} failed: {e}")
-            if retry_attempt < max_retries - 1:
+            if i < MAX - 1:
                 continue
             else:
-                raise RuntimeError(f"Z3 unsafe condition verification failed after {max_retries} attempts: {e}")
+                raise RuntimeError(f"Z3 unsafe condition verification failed after {MAX} attempts: {e}")
 
-def _is_discrete_time(dynamics: Union[str, Dict, List]) -> bool:
-    # determine that if dynamics are discrete or continuous-time
-    try:
-        if isinstance(dynamics, str):
-            return '[k+1]' in dynamics or '[k]' in dynamics
-        elif isinstance(dynamics, dict):
-            first_val = next(iter(dynamics.values())) if dynamics else ""
-            return '[k+1]' in str(first_val) or '[k]' in str(first_val)
-        elif isinstance(dynamics, list):
-            first_val = dynamics[0] if dynamics else ""
-            return '[k+1]' in str(first_val) or '[k]' in str(first_val)
-        return False
-    except Exception:
-        return False
-
-def _verify_invariance_condition_z3_with_retry(barrier_expr: sp.Expr, barrier_z3, z3_vars: Dict, 
-                                             dynamics: Union[str, Dict, List]) -> Dict[str, Any]:
+def verify_invariance_condition(barrier_expr: sp.Expr, barrier_z3, z3_vars: Dict, 
+                                             dynamics: str) -> Dict[str, Any]:
     # check condition 3, continuous uses ∇B·f < 0, discrete uses B(f(x)) - B(x) ≤ 0
-    max_retries = 3    
-    is_discrete = _is_discrete_time(dynamics)
+    MAX = 3    
+    
+    if isinstance(dynamics, str):
+        is_discrete = '[k+1]' in dynamics or '[k]' in dynamics
+    else:
+        raise TypeError(f"Invalid dynamics type - expected str")
+
     logger.info(f"System type detected: {'DISCRETE-TIME' if is_discrete else 'CONTINUOUS-TIME'}")
     
-    for retry_attempt in range(max_retries):
+    for i in range(MAX):
         try:
             barrier_symbols = list(barrier_expr.free_symbols)
             barrier_symbols = sorted(barrier_symbols, key=lambda s: int(str(s)[1:]) if str(s).startswith('x') and str(s)[1:].isdigit() else 999)
@@ -313,14 +287,14 @@ def _verify_invariance_condition_z3_with_retry(barrier_expr: sp.Expr, barrier_z3
                 else:
                     all_system_vars.append(sp.Symbol(var_name, real=True))
             
-            dynamics_exprs = _parse_dynamics(dynamics, all_system_vars)
+            dynamics_exprs = parse_dynamics(dynamics, all_system_vars)
             if len(dynamics_exprs) != len(all_system_vars):
                 raise ValueError(f'Dynamics dimension mismatch: got {len(dynamics_exprs)}, expected {len(all_system_vars)}')
             
             # extract controller parameters from dynamics
             controller_symbols = set()
-            for expr in dynamics_exprs:
-                expr_symbols = expr.free_symbols
+            for dy_expr in dynamics_exprs:
+                expr_symbols = dy_expr.free_symbols
                 for sym in expr_symbols:
                     sym_str = str(sym)
 
@@ -349,7 +323,7 @@ def _verify_invariance_condition_z3_with_retry(barrier_expr: sp.Expr, barrier_z3
                 subs_dict = {var: dynamics_exprs[i] for i, var in enumerate(all_system_vars)}
                 barrier_next = barrier_expr.subs(subs_dict)
                 
-                barrier_next_z3 = _sympy_to_z3_with_retry(barrier_next, z3_vars)                
+                barrier_next_z3 = convert_sympy_to_z3(barrier_next, z3_vars)                
                 solver = z3.Solver()
                 solver.add(barrier_next_z3 - barrier_z3 > 0)
                 
@@ -360,7 +334,7 @@ def _verify_invariance_condition_z3_with_retry(barrier_expr: sp.Expr, barrier_z3
                     return {
                         'satisfied': True,
                         'method': 'z3_formal',
-                        'details': 'No counterexample found - B(f(x)) - B(x) ≤ 0 formally verified'
+                        'details': 'No counterexample found with B(f(x)) - B(x) ≤ 0 formally verified'
                     }
                 elif result == z3.sat:
                     model = solver.model()
@@ -368,12 +342,11 @@ def _verify_invariance_condition_z3_with_retry(barrier_expr: sp.Expr, barrier_z3
                     return {
                         'satisfied': False,
                         'method': 'z3_formal',
-                        'details': 'Counterexample found - B(f(x)) - B(x) > 0 at some boundary point',
+                        'details': 'Counterexample found with B(f(x)) - B(x) > 0 at some boundary point',
                         'counterexample': counterexample
                     }
                 else:
-                    if retry_attempt < max_retries - 1:
-                        logger.warning(f"Z3 invariance condition check returned unknown, retrying...")
+                    if i < MAX - 1:
                         continue
                     else:
                         raise RuntimeError("Z3 solver returned unknown result after all retries")
@@ -393,7 +366,7 @@ def _verify_invariance_condition_z3_with_retry(barrier_expr: sp.Expr, barrier_z3
                 lie_derivative = sum(grad * dyn for grad, dyn in zip(gradient, dynamics_exprs))
                 
                 # convert to Z3
-                lie_derivative_z3 = _sympy_to_z3_with_retry(lie_derivative, z3_vars)
+                lie_derivative_z3 = convert_sympy_to_z3(lie_derivative, z3_vars)
                 
                 solver = z3.Solver()                
                 solver.add(barrier_z3 == 0)
@@ -418,30 +391,28 @@ def _verify_invariance_condition_z3_with_retry(barrier_expr: sp.Expr, barrier_z3
                         'counterexample': counterexample
                     }
                 else:
-                    if retry_attempt < max_retries - 1:
-                        logger.warning(f"Z3 invariance condition check returned unknown, retrying...")
+                    if i < MAX - 1:
                         continue
                     else:
                         raise RuntimeError("Z3 solver returned unknown result after all retries")
                     
         except Exception as e:
-            logger.warning(f"Z3 invariance condition verification attempt {retry_attempt + 1}/{max_retries} failed: {e}")
-            if retry_attempt < max_retries - 1:
+            if i < MAX - 1:
                 continue
             else:
-                raise RuntimeError(f"Z3 invariance condition verification failed after {max_retries} attempts: {e}")
+                raise RuntimeError(f"Z3 invariance condition verification failed after {MAX} attempts: {e}")
 
-def _get_set_constraints_z3(set_description: Dict, z3_vars: Dict) -> List:
+def get_set_constraints(set_description: Dict, z3_vars: Dict) -> List:
     constraints = []
-    
     try:
         if set_description.get('type') == 'ball':
-            radius = set_description.get('radius', 1.0)
-            center = set_description.get('center', [0] * len(z3_vars))
+            radius = set_description.get('radius')
+            center = set_description.get('center')
             is_complement = set_description.get('complement', False)
             
-            if len(center) < len(z3_vars):
-                center = center + [0] * (len(z3_vars) - len(center))
+            if len(center) != len(z3_vars):
+                logger.error(f"center and z3 variables mismatch")
+                return None
             
             squared_distance = 0
             var_list = sorted(z3_vars.items(), key=lambda x: int(x[0][1:]) if x[0].startswith('x') and x[0][1:].isdigit() else 999)
@@ -466,45 +437,23 @@ def _get_set_constraints_z3(set_description: Dict, z3_vars: Dict) -> List:
                     low, high = bounds[i]
                     constraints.append(z3_var >= low)
                     constraints.append(z3_var <= high)
-        
         else:
-            # default
-            for var_name, z3_var in z3_vars.items():
-                constraints.append(z3_var >= -10)
-                constraints.append(z3_var <= 10)
+            logger.error(f"Unknown or missing set type")
+            return None
     
     except Exception as e:
         logger.error(f"Error creating Z3 constraints: {e}")
-
-        for var_name, z3_var in z3_vars.items():
-            constraints.append(z3_var >= -10)
-            constraints.append(z3_var <= 10)
+        return None 
     
     return constraints
 
-
-def _parse_dynamics(dynamics: Union[str, Dict, List], variables: List[sp.Symbol]) -> List[sp.Expr]:
-    # parse dynamics into symbolic expressions
-    try:
-        if isinstance(dynamics, str):
-            return _parse_string_dynamics(dynamics, variables)
-        elif isinstance(dynamics, dict):
-            return _parse_dict_dynamics(dynamics, variables)
-        elif isinstance(dynamics, list):
-            return _parse_list_dynamics(dynamics, variables)
-        else:
-            # def.
-            return [-var for var in variables]
-            
-    except Exception as e:
-        logger.error(f"Error parsing dynamics: {e}")
-        return [-var for var in variables]
-
-
-def _parse_string_dynamics(dynamics_str: str, variables: List[sp.Symbol]) -> List[sp.Expr]:
+def parse_dynamics(dynamics_str: str, variables: List[sp.Symbol]) -> List[sp.Expr]:
     # parse string dynamics
-    try:
+    if not isinstance(dynamics_str, str):
+        logger.error(f"Invalid dynamics type - expected str")
+        return None
 
+    try:
         dynamics_str = re.sub(r'\[k\+1\]', '', dynamics_str)                # Remove [k+1]
         dynamics_str = re.sub(r'\[k\]', '', dynamics_str)                   # Remove [k]
         
@@ -522,126 +471,81 @@ def _parse_string_dynamics(dynamics_str: str, variables: List[sp.Symbol]) -> Lis
                 var_name = str(var)
                 rhs = re.sub(r'\b' + var_name + r'\b', str(var), rhs)
             
-            try:
-                expr = sp.sympify(rhs)
-                exprs.append(expr)
-            except Exception as e:
-                logger.warning(f"failed to parse dynamics term '{rhs}': {e}")
-                # default
-                if len(exprs) < len(variables):
-                    exprs.append(-variables[len(exprs)])
+            expr = sp.sympify(rhs)
+            exprs.append(expr)
         
-        while len(exprs) < len(variables):
-            exprs.append(-variables[len(exprs)])
-        
-        return exprs[:len(variables)]
+        if len(exprs) != len(variables):
+            print(f"ERROR: Got {len(exprs)} equations but need {len(variables)} for system")
+            return None
+
+        return exprs
         
     except Exception as e:
-        logger.error(f"error parsing string dynamics: {e}")
-        return [-var for var in variables]
-
-
-def _parse_dict_dynamics(dynamics_dict: Dict, variables: List[sp.Symbol]) -> List[sp.Expr]:
-    exprs = []
-    for var in variables:
-        var_name = str(var)
-        if var_name in dynamics_dict:
-            try:
-                expr_str = str(dynamics_dict[var_name])
-                expr = sp.sympify(expr_str)
-                exprs.append(expr)
-            except Exception:
-                exprs.append(-var) 
-        else:
-            exprs.append(-var)  
-    return exprs
-
-
-def _parse_list_dynamics(dynamics_list: List, variables: List[sp.Symbol]) -> List[sp.Expr]:
-    exprs = []
-    for i, expr_item in enumerate(dynamics_list):
-        if i >= len(variables):
-            break
-        try:
-            expr = sp.sympify(expr_item)
-            exprs.append(expr)
-        except Exception:
-            exprs.append(-variables[i]) 
-    
-    while len(exprs) < len(variables):
-        exprs.append(-variables[len(exprs)])
-    
-    return exprs
-
+        logger.error(f"error parsing dynamics: {e}")
+        return None
 
 def validate_barrier_certificate(barrier_str: str, initial_set: Dict, unsafe_set: Dict, 
                                dynamics: Union[str, Dict, List]) -> bool:
-    max_retries = 3
+    MAX = 3
     
-    for retry_attempt in range(max_retries):
+    for i in range(MAX):
         try:
-            barrier_expr, variables = parse_barrier_certificate(barrier_str)
+            barrier_expr, var = parse_barrier_certificate(barrier_str)
             if barrier_expr is None:
-                if retry_attempt < max_retries - 1:
-                    logger.warning(f"Barrier parsing failed, retrying... (attempt {retry_attempt + 1}/{max_retries})")
+                if i < MAX - 1:
                     continue
                 else:
-                    logger.error(f"Barrier parsing failed after {max_retries} attempts")
                     return False
             
-            results = verify_barrier_conditions_smt(barrier_expr, variables, 
+            results = verify_barrier_conditions_smt(barrier_expr, var, 
                                                   initial_set, unsafe_set, dynamics)
             return results.get('all_conditions_satisfied', False)
             
         except Exception as e:
-            logger.warning(f"Validation attempt {retry_attempt + 1}/{max_retries} failed: {e}")
-            if retry_attempt < max_retries - 1:
+            if i < MAX - 1:
                 import time
                 time.sleep(1)
             else:
-                logger.error(f"Validation failed after {max_retries} attempts: {e}")
+                logger.error(f"Validation failed after {MAX} attempts: {e}")
                 return False
 
-
-def get_detailed_condition_results(barrier_str: str, initial_set: Dict, unsafe_set: Dict, 
+def get_condition_results(barrier_str: str, initial_set: Dict, unsafe_set: Dict, 
                                  dynamics: Union[str, Dict, List]) -> Dict[str, Any]:
     # detailed verification results
-    max_retries = 3
+    MAX = 3
     
-    for retry_attempt in range(max_retries):
+    for i in range(MAX):
         try:
-            clean_barrier = clean_and_extract_barrier(barrier_str)
-            if not clean_barrier:
-                if retry_attempt < max_retries - 1:
-                    logger.warning(f"Barrier cleaning failed, retrying... (attempt {retry_attempt + 1}/{max_retries})")
+            cln_br = clean_and_extract_barrier(barrier_str)
+            if not cln_br:
+                if i < MAX - 1:
                     continue
                 else:
                     return {'success': False, 'error': 'Failed to parse barrier after all retries'}
             
-            barrier_expr, variables = parse_barrier_certificate(clean_barrier)
+            barrier_expr, var = parse_barrier_certificate(cln_br)
             if barrier_expr is None:
-                if retry_attempt < max_retries - 1:
-                    logger.warning(f"Barrier expression parsing failed, retrying... (attempt {retry_attempt + 1}/{max_retries})")
+                if i < MAX - 1:
                     continue
                 else:
                     return {'success': False, 'error': 'Failed to parse barrier expression after all retries'}
             
-            conditions = verify_barrier_conditions_smt(barrier_expr, variables, 
+            conditions = verify_barrier_conditions_smt(barrier_expr, var, 
                                                      initial_set, unsafe_set, dynamics)
             
             return {
                 'success': True,
                 'barrier_expression': str(barrier_expr),
-                'variables': [str(v) for v in variables],
+                'var': [str(v) for v in var],
                 'conditions': conditions,
                 'all_satisfied': conditions.get('all_conditions_satisfied', False)
             }
             
         except Exception as e:
-            logger.warning(f"Detailed results attempt {retry_attempt + 1}/{max_retries} failed: {e}")
-            if retry_attempt < max_retries - 1:
+            logger.warning(f"Detailed results attempt {i + 1}/{MAX} failed: {e}")
+            if i < MAX - 1:
                 import time
                 time.sleep(1)
             else:
-                logger.error(f"Detailed results failed after {max_retries} attempts: {e}")
+                logger.error(f"Detailed results failed after {MAX} attempts: {e}")
                 return {'success': False, 'error': f'All retry attempts failed: {str(e)}'}

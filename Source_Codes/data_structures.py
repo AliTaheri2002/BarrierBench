@@ -9,9 +9,9 @@ logger = logging.getLogger(__name__)
 
 def generate_samples_for_barrier_validation(problem: Dict[str, Any], num_samples: int = 1000) -> Dict[str, Any]:
     # Generate samples
-    print(f"Generating {num_samples} samples for barrier validation...") 
-    uncertainty_set_X = _define_uncertainty_set_for_validation(problem)
-    print(f"Uncertainty set X: {uncertainty_set_X}")
+    print(f"Generating {num_samples} samples for barrier validation") 
+    state_space_X = compute_state_space_bounds(problem)
+    print(f"State space X: {state_space_X}")
     
     unified_samples = []
     initial_samples_for_compatibility = []
@@ -22,18 +22,18 @@ def generate_samples_for_barrier_validation(problem: Dict[str, Any], num_samples
     is_unsafe_complement = problem['unsafe_set'].get('complement', False)
     
     if is_unsafe_complement:
-        print(f"Using complement-aware sampling strategy...")
+        print(f"Using complement-aware sampling strategy")
         # 1. sample from initial set
         initial_count = int(num_samples * 0.3)
-        print(f"Generating {initial_count} samples from initial set...")
+        print(f"Generating {initial_count} samples from initial set")
         
         for i in range(initial_count):
             try:
-                sample_point = _sample_from_set(problem['initial_set'])
-                trajectory = _simulate_one_step(sample_point, problem['dynamics'])
+                sample_point = sample_from_set(problem['initial_set'])
+                trajectory = simulate_one_step(sample_point, problem['dynamics'])
                 
                 is_in_initial = True  
-                is_in_unsafe = _point_in_set(sample_point, problem['unsafe_set'])
+                is_in_unsafe = is_point_in_set(sample_point, problem['unsafe_set'])
                 
                 sample_data = {
                     'point': sample_point,
@@ -52,7 +52,7 @@ def generate_samples_for_barrier_validation(problem: Dict[str, Any], num_samples
         
         # 2. sample from unsafe region
         unsafe_count = int(num_samples * 0.3)
-        print(f"Generating {unsafe_count} samples from unsafe complement region...")
+        print(f"Generating {unsafe_count} samples from unsafe complement region")
         
         unsafe_samples_generated = 0
         max_total_attempts = unsafe_count * 20
@@ -62,12 +62,12 @@ def generate_samples_for_barrier_validation(problem: Dict[str, Any], num_samples
                 break
                 
             try:
-                sample_point = _sample_from_uncertainty_set_X(uncertainty_set_X)
-                is_in_unsafe = _point_in_set(sample_point, problem['unsafe_set'])
+                sample_point = sample_from_set(state_space_X)
+                is_in_unsafe = is_point_in_set(sample_point, problem['unsafe_set'])
                 
                 if is_in_unsafe:
-                    trajectory = _simulate_one_step(sample_point, problem['dynamics'])
-                    is_in_initial = _point_in_set(sample_point, problem['initial_set'])
+                    trajectory = simulate_one_step(sample_point, problem['dynamics'])
+                    is_in_initial = is_point_in_set(sample_point, problem['initial_set'])
                     
                     sample_data = {
                         'point': sample_point,
@@ -88,15 +88,15 @@ def generate_samples_for_barrier_validation(problem: Dict[str, Any], num_samples
         
         # 3 
         remaining = num_samples - len(unified_samples)
-        print(f"Generating {remaining} uniform samples from uncertainty set X...")
+        print(f"Generating {remaining} uniform samples from state space set X")
         
         for i in range(remaining):
             try:
-                sample_point = _sample_from_uncertainty_set_X(uncertainty_set_X)
-                trajectory = _simulate_one_step(sample_point, problem['dynamics'])
+                sample_point = sample_from_set(state_space_X)
+                trajectory = simulate_one_step(sample_point, problem['dynamics'])
                 
-                is_in_initial = _point_in_set(sample_point, problem['initial_set'])
-                is_in_unsafe = _point_in_set(sample_point, problem['unsafe_set'])
+                is_in_initial = is_point_in_set(sample_point, problem['initial_set'])
+                is_in_unsafe = is_point_in_set(sample_point, problem['unsafe_set'])
                 
                 sample_data = {
                     'point': sample_point,
@@ -114,18 +114,18 @@ def generate_samples_for_barrier_validation(problem: Dict[str, Any], num_samples
                 continue
     
     else:
-        print(f"using original strategy for non-complement unsafe set...")
+        print(f"using original strategy for non-complement unsafe set")
         samples_per_strategy = num_samples // 3
         
         # 1.
-        print(f"Generating {samples_per_strategy} samples biased toward initial set...")
+        print(f"Generating {samples_per_strategy} samples biased toward initial set")
         for i in range(samples_per_strategy):
             try:
-                sample_point = _sample_from_set(problem['initial_set'])
-                trajectory = _simulate_one_step(sample_point, problem['dynamics'])
+                sample_point = sample_from_set(problem['initial_set'])
+                trajectory = simulate_one_step(sample_point, problem['dynamics'])
                 
-                is_in_initial = _point_in_set(sample_point, problem['initial_set'])
-                is_in_unsafe = _point_in_set(sample_point, problem['unsafe_set'])
+                is_in_initial = is_point_in_set(sample_point, problem['initial_set'])
+                is_in_unsafe = is_point_in_set(sample_point, problem['unsafe_set'])
                 
                 sample_data = {
                     'point': sample_point,
@@ -143,14 +143,14 @@ def generate_samples_for_barrier_validation(problem: Dict[str, Any], num_samples
                 continue
         
         # 2.
-        print(f"Generating {samples_per_strategy} samples biased toward unsafe set...")
+        print(f"Generating {samples_per_strategy} samples biased toward unsafe set")
         for i in range(samples_per_strategy):
             try:
-                sample_point = _sample_from_unsafe_set(problem['unsafe_set'])
-                trajectory = _simulate_one_step(sample_point, problem['dynamics'])
+                sample_point = sample_from_unsafe_set(problem['unsafe_set'])
+                trajectory = simulate_one_step(sample_point, problem['dynamics'])
                 
-                is_in_initial = _point_in_set(sample_point, problem['initial_set'])
-                is_in_unsafe = _point_in_set(sample_point, problem['unsafe_set'])
+                is_in_initial = is_point_in_set(sample_point, problem['initial_set'])
+                is_in_unsafe = is_point_in_set(sample_point, problem['unsafe_set'])
                 
                 sample_data = {
                     'point': sample_point,
@@ -169,14 +169,14 @@ def generate_samples_for_barrier_validation(problem: Dict[str, Any], num_samples
         
         # 3.
         remaining_samples = num_samples - len(unified_samples)
-        print(f"Generating {remaining_samples} samples uniformly from uncertainty set X...")
+        print(f"Generating {remaining_samples} samples uniformly from state space set X")
         for i in range(remaining_samples):
             try:
-                sample_point = _sample_from_uncertainty_set_X(uncertainty_set_X)
-                trajectory = _simulate_one_step(sample_point, problem['dynamics'])
+                sample_point = sample_from_set(state_space_X)
+                trajectory = simulate_one_step(sample_point, problem['dynamics'])
                 
-                is_in_initial = _point_in_set(sample_point, problem['initial_set'])
-                is_in_unsafe = _point_in_set(sample_point, problem['unsafe_set'])
+                is_in_initial = is_point_in_set(sample_point, problem['initial_set'])
+                is_in_unsafe = is_point_in_set(sample_point, problem['unsafe_set'])
                 
                 sample_data = {
                     'point': sample_point,
@@ -214,7 +214,7 @@ def generate_samples_for_barrier_validation(problem: Dict[str, Any], num_samples
         }
     }
 
-def _define_uncertainty_set_for_validation(problem: Dict[str, Any]) -> Dict[str, Any]:
+def compute_state_space_bounds(problem: Dict[str, Any]) -> Dict[str, Any]:
     initial_set = problem['initial_set']
     unsafe_set = problem['unsafe_set']
     
@@ -223,7 +223,7 @@ def _define_uncertainty_set_for_validation(problem: Dict[str, Any]) -> Dict[str,
         if unsafe_set.get('type') == 'bounds':
             unsafe_bounds = unsafe_set.get('bounds', [])
             
-            # expand unsafe bounds by 10% to create uncertainty set X
+            # expand unsafe bounds by 10% to create state space set X
             expanded_bounds = []
             for bound_pair in unsafe_bounds:
                 if len(bound_pair) >= 2:
@@ -245,11 +245,11 @@ def _define_uncertainty_set_for_validation(problem: Dict[str, Any]) -> Dict[str,
                 'description': 'uncertainty_set_X_expanded'
             }
             
-            print(f"Expanded uncertainty set X for complement: {expanded_bounds}")
+            print(f"Expanded state space set X for complement: {expanded_bounds}")
             
         elif unsafe_set.get('type') == 'ball':
-            center = unsafe_set.get('center', [0, 0])
-            radius = unsafe_set.get('radius', 3.0)
+            center = unsafe_set.get('center')
+            radius = unsafe_set.get('radius')
             
             expanded_radius = radius * 1.2  # 20% expansion
             
@@ -260,7 +260,7 @@ def _define_uncertainty_set_for_validation(problem: Dict[str, Any]) -> Dict[str,
                 'description': 'uncertainty_set_X_expanded'
             }
             
-            print(f"Expanded uncertainty set X for complement ball: radius {expanded_radius}")
+            print(f"Expanded state space set X for complement ball: radius {expanded_radius}")
         else:
             print(f"ERROR: Unknown unsafe set type: {unsafe_set.get('type')}")
             raise ValueError(f"Unsupported unsafe set type for complement: {unsafe_set.get('type')}")
@@ -271,30 +271,24 @@ def _define_uncertainty_set_for_validation(problem: Dict[str, Any]) -> Dict[str,
         
         # get bounds for initial set
         if init_type == 'bounds':
-            init_bounds = initial_set.get('bounds', [])
+            init_bounds = initial_set.get('bounds')
         elif init_type == 'ball':
-            center = initial_set.get('center', [0, 0])
-            radius = initial_set.get('radius', 1.0)
+            center = initial_set.get('center')
+            radius = initial_set.get('radius')
             init_bounds = [[c - radius * 1.1, c + radius * 1.1] for c in center]
         else:
             init_bounds = [[-1, 1], [-1, 1]]  # default
         
         # get bounds for unsafe set
         if unsafe_type == 'bounds':
-            unsafe_bounds = unsafe_set.get('bounds', [])
+            unsafe_bounds = unsafe_set.get('bounds')
         elif unsafe_type == 'ball':
-            center = unsafe_set.get('center', [0, 0])
-            radius = unsafe_set.get('radius', 1.0)
+            center = unsafe_set.get('center')
+            radius = unsafe_set.get('radius')
             unsafe_bounds = [[c - radius * 1.1, c + radius * 1.1] for c in center]
         else:
-            unsafe_bounds = [[-1, 1], [-1, 1]]  # default
-        
-        # ensure same dim
-        max_dim = max(len(init_bounds), len(unsafe_bounds))
-        while len(init_bounds) < max_dim:
-            init_bounds.append([-1, 1])
-        while len(unsafe_bounds) < max_dim:
-            unsafe_bounds.append([-1, 1])
+            logger.error(f"Unknown unsafe set type: '{unsafe_type}'")
+            return None
         
         # create union bounds
         union_bounds = []
@@ -309,15 +303,15 @@ def _define_uncertainty_set_for_validation(problem: Dict[str, Any]) -> Dict[str,
             'description': 'uncertainty_set_X_union'
         }
         
-        print(f"union uncertainty set X: {union_bounds}")
+        print(f"union state space set X: {union_bounds}")
     
     return uncertainty_set
 
-def _sample_from_set(set_description: Dict[str, Any]) -> List[float]:
+def sample_from_set(set_description: Dict[str, Any]) -> List[float]:
     try:
         if set_description.get('type') == 'ball':
-            center = set_description.get('center', [0, 0])
-            radius = set_description.get('radius', 1.0)
+            center = set_description.get('center')
+            radius = set_description.get('radius')
             
             dim = len(center)
             random_dir = np.random.randn(dim)
@@ -329,16 +323,18 @@ def _sample_from_set(set_description: Dict[str, Any]) -> List[float]:
             
         elif set_description.get('type') == 'bounds':
             bounds = set_description.get('bounds', [])
-            if not bounds:
-                return [0.0] * 8  # Default 8D
+            if bounds is None or not bounds:
+                logger.error("Bounds set description missing or empty 'bounds' field")
+                return None
             
             sample = []
-            for bound in bounds:
+            for i, bound in enumerate(bounds):
                 if len(bound) >= 2:
                     low, high = bound[0], bound[1]
                     sample.append(np.random.uniform(low, high))
                 else:
-                    sample.append(0.0)
+                    logger.error(f"Invalid bound at index {i}: {bound}")
+                    return None
             
             return sample
         else:
@@ -346,13 +342,13 @@ def _sample_from_set(set_description: Dict[str, Any]) -> List[float]:
             
     except Exception as e:
         print(f"ERROR: Sampling from set failed: {e}")
-        return [0.0] * 3  
+        return None
+        # return [0.0] * 3  
 
-
-def _sample_from_unsafe_set(unsafe_set_description: Dict[str, Any]) -> List[float]:
+def sample_from_unsafe_set(unsafe_set_description: Dict[str, Any]) -> List[float]:
     try:
         if unsafe_set_description.get('type') == 'bounds':
-            bounds = unsafe_set_description.get('bounds', [])
+            bounds = unsafe_set_description.get('bounds')
             is_complement = unsafe_set_description.get('complement', False)
             
             if not bounds:
@@ -383,11 +379,11 @@ def _sample_from_unsafe_set(unsafe_set_description: Dict[str, Any]) -> List[floa
                 
                 return sample
             else:
-                return _sample_from_set(unsafe_set_description)
+                return sample_from_set(unsafe_set_description)
                 
         elif unsafe_set_description.get('type') == 'ball':
-            center = unsafe_set_description.get('center', [0, 0])
-            radius = unsafe_set_description.get('radius', 3.0)
+            center = unsafe_set_description.get('center')
+            radius = unsafe_set_description.get('radius')
             is_complement = unsafe_set_description.get('complement', False)
             
             if is_complement:
@@ -402,7 +398,7 @@ def _sample_from_unsafe_set(unsafe_set_description: Dict[str, Any]) -> List[floa
                 sample = np.array(center) + random_radius * random_dir
                 return sample.tolist()
             else:
-                return _sample_from_set(unsafe_set_description)
+                return sample_from_set(unsafe_set_description)
         
         else:
             raise ValueError(f"Unknown unsafe set type: {unsafe_set_description.get('type')}")
@@ -411,21 +407,11 @@ def _sample_from_unsafe_set(unsafe_set_description: Dict[str, Any]) -> List[floa
         print(f"ERROR: Unsafe set sampling failed: {e}")
         raise ValueError(f"Failed to sample from unsafe set: {e}")
 
-
-def _sample_from_uncertainty_set_X(uncertainty_set: Dict[str, Any]) -> List[float]:
-    # sample from  defined uncertainty set X
-    try:
-        return _sample_from_set(uncertainty_set)
-    except Exception as e:
-        print(f"ERROR: Failed to sample from uncertainty set X: {e}")
-        raise
-
-
-def _point_in_set(point: List[float], set_desc: Dict[str, Any]) -> bool:
+def is_point_in_set(point: List[float], set_desc: Dict[str, Any]) -> bool:
     try:
         if set_desc.get('type') == 'ball':
-            center = set_desc.get('center', [0, 0])
-            radius = set_desc.get('radius', 1.0)
+            center = set_desc.get('center')
+            radius = set_desc.get('radius')
             is_complement = set_desc.get('complement', False)
             
             if len(point) != len(center):
@@ -437,7 +423,7 @@ def _point_in_set(point: List[float], set_desc: Dict[str, Any]) -> bool:
             return not inside_ball if is_complement else inside_ball
                 
         elif set_desc.get('type') == 'bounds':
-            bounds = set_desc.get('bounds', [])
+            bounds = set_desc.get('bounds')
             is_complement = set_desc.get('complement', False)
             
             if len(point) != len(bounds):
@@ -452,6 +438,7 @@ def _point_in_set(point: List[float], set_desc: Dict[str, Any]) -> bool:
                     break
             
             return not inside_bounds if is_complement else inside_bounds
+
         else:
             return False
                 
@@ -459,27 +446,30 @@ def _point_in_set(point: List[float], set_desc: Dict[str, Any]) -> bool:
         print(f"ERROR: Point-in-set check failed: {e}")
         return False
 
-
-def _simulate_one_step(initial_point: List[float], dynamics: str) -> List[List[float]]:
+def simulate_one_step(initial_point: List[float], dynamics: str) -> List[List[float]]:
     # simulate 1 step
     try:
         trajectory = [initial_point.copy()]
-        next_point = _apply_dynamics_step(initial_point, dynamics)
+        next_point = apply_dynamics_step(initial_point, dynamics)
         trajectory.append(next_point)
         return trajectory
     except Exception as e:
         print(f"ERROR: One-step simulation failed: {e}")
-        return [initial_point, initial_point]  
+        return None
 
-def _apply_dynamics_step(point: List[float], dynamics: str) -> List[float]:
+def apply_dynamics_step(point: List[float], dynamics: str) -> List[float]:
     try:
-        is_discrete = '[k+1]' in dynamics or '[k]' in dynamics        
+        if isinstance(dynamics, str):
+            is_discrete = '[k+1]' in dynamics or '[k]' in dynamics
+        else:
+            raise TypeError(f"Invalid dynamics type - expected str")
+
         if is_discrete:
-            next_state = _evaluate_dynamics_at_point(point, dynamics)
+            next_state = evaluate_dynamics_at_point(point, dynamics)
             return next_state
         else:
             dt = 0.01
-            derivatives = _evaluate_dynamics_at_point(point, dynamics)
+            derivatives = evaluate_dynamics_at_point(point, dynamics)
             
             next_point = []
             for i, (coord, deriv) in enumerate(zip(point, derivatives)):
@@ -490,7 +480,7 @@ def _apply_dynamics_step(point: List[float], dynamics: str) -> List[float]:
 
     except Exception as e:
         print(f"ERROR: Dynamics step failed: {e}")
-        return point
+        return None
 
 def validate_barrier_on_samples(barrier_expr: str, problem: Dict[str, Any], samples: Dict[str, Any], controller_expr: str = None) -> Dict[str, Any]:
     # validate barrier certificate on samples
@@ -502,22 +492,19 @@ def validate_barrier_on_samples(barrier_expr: str, problem: Dict[str, Any], samp
         # handle controller
         working_problem = problem.copy()
         if controller_expr:
-            controller_dict = _parse_controller_expressions_for_samples(controller_expr, problem)
+            controller_dict = parse_controller_expressions(controller_expr, problem)
             if controller_dict:
                 original_dynamics = problem['dynamics']
-                closed_loop_dynamics = _substitute_controller_into_dynamics_for_samples(original_dynamics, controller_dict)
+                closed_loop_dynamics = substitute_controller_into_dynamics_for_samples(original_dynamics, controller_dict)
                 working_problem['dynamics'] = closed_loop_dynamics
                 print(f"Using closed-loop dynamics: {closed_loop_dynamics}")
             else:
                 print(f"Failed to parse controller, using original dynamics")
         
         unified_samples = samples['unified_samples']
-        barrier_info = _parse_barrier_expression_simple(barrier_expr)
         
         # Check conditions on samples
-        condition_1_violations = 0
-        condition_2_violations = 0  
-        condition_3_violations = 0
+        condition_1_violations = condition_2_violations = condition_3_violations = 0
         
         condition_1_counterexamples = []
         condition_2_counterexamples = []
@@ -528,8 +515,8 @@ def validate_barrier_on_samples(barrier_expr: str, problem: Dict[str, Any], samp
         for sample in unified_samples:
             sample_point = sample['point']
 
-            trajectory = _simulate_one_step(sample_point, working_problem['dynamics'])            
-            barrier_value = _evaluate_barrier_simple(barrier_info, sample_point)
+            trajectory = simulate_one_step(sample_point, working_problem['dynamics'])            
+            barrier_value = evaluate_barrier_simple(barrier_expr, sample_point)
             
             # Condition 1
             if sample['in_initial_set']:
@@ -552,12 +539,13 @@ def validate_barrier_on_samples(barrier_expr: str, problem: Dict[str, Any], samp
                     })
             
             # Condition 3
-            if len(trajectory) >= 2:
+            if trajectory is not None:
+
                 x_point = trajectory[0]
                 next_point = trajectory[1]
                 
-                barrier_x = _evaluate_barrier_simple(barrier_info, x_point)
-                barrier_next = _evaluate_barrier_simple(barrier_info, next_point)
+                barrier_x = evaluate_barrier_simple(barrier_expr, x_point)
+                barrier_next = evaluate_barrier_simple(barrier_expr, next_point)
                 
                 # For standard barriers: B(f(x)) - B(x) ≤ 0
                 dynamics_violation = barrier_next - barrier_x
@@ -569,7 +557,9 @@ def validate_barrier_on_samples(barrier_expr: str, problem: Dict[str, Any], samp
                         'barrier_next': barrier_next,
                         'violation': dynamics_violation,
                     })
-        
+            else:
+                raise RuntimeError("Trajectory generation failed, cannot proceed with barrier validation")
+
         # Determine satisfaction
         condition_1_satisfied = condition_1_violations == 0
         condition_2_satisfied = condition_2_violations == 0
@@ -605,8 +595,7 @@ def validate_barrier_on_samples(barrier_expr: str, problem: Dict[str, Any], samp
             'error': str(e)
         }
 
-
-def _parse_controller_expressions_for_samples(controller_expr: str, problem: Dict[str, Any]) -> Dict[str, str]:
+def parse_controller_expressions(controller_expr: str, problem: Dict[str, Any]) -> Dict[str, str]:
     try:
         controller_dict = {}
         controller_params = [p.strip() for p in problem.get('controller_parameters', '').split(',') if p.strip()]
@@ -629,6 +618,7 @@ def _parse_controller_expressions_for_samples(controller_expr: str, problem: Dic
                     param_name = controller_params[i]
                     param_expr = expr
                 else:
+                    print(f"ERROR: Extra controller expression at position {i+1} with no matching parameter")
                     continue
             
             param_expr = re.sub(r'\s+', ' ', param_expr)
@@ -644,8 +634,7 @@ def _parse_controller_expressions_for_samples(controller_expr: str, problem: Dic
         print(f"ERROR: Failed to parse controller expressions: {e}")
         return {}
 
-
-def _substitute_controller_into_dynamics_for_samples(dynamics_str: str, controller_dict: Dict[str, str]) -> str:
+def substitute_controller_into_dynamics_for_samples(dynamics_str: str, controller_dict: Dict[str, str]) -> str:
     # substitute controller expressions into dynamics string to create closed-loop dynamics
     try:
         if not controller_dict:
@@ -679,15 +668,16 @@ def _substitute_controller_into_dynamics_for_samples(dynamics_str: str, controll
         
     except Exception as e:
         print(f"ERROR: Failed to substitute controller into dynamics: {e}")
-        return dynamics_str 
+        return None
+        # return dynamics_str 
 
-
-def _evaluate_dynamics_at_point(point: List[float], dynamics: str) -> List[float]:
+def evaluate_dynamics_at_point(point: List[float], dynamics: str) -> List[float]:
     # evaluate dynamics at a given point
     try:
-        # print(dynamics)
-        # exit()
-        is_discrete = '[k+1]' in dynamics or '[k]' in dynamics
+        if isinstance(dynamics, str):
+            is_discrete = '[k+1]' in dynamics or '[k]' in dynamics
+        else:
+            raise TypeError(f"Invalid dynamics type - expected str")
         
         if is_discrete:
             dynamics = re.sub(r'\[k\+1\]', '', dynamics)                    # Remove [k+1]
@@ -716,25 +706,21 @@ def _evaluate_dynamics_at_point(point: List[float], dynamics: str) -> List[float
                     derivatives.append(float(result))
                 except Exception as eval_error:
                     print(f"DEBUG: Eval failed for '{rhs}': {eval_error}")
-                    derivatives.append(0.0)
+                    return None
         
-        # Pad with zeros if needed
-        while len(derivatives) < len(point):
-            derivatives.append(0.0)
+        if len(derivatives) != len(equations):
+            logger.error(f"Dimension mismatch: expected {len(equations)} derivatives, got {len(derivatives)}")
+            return None
             
         return derivatives
+    
     except Exception as e:
         print(f"ERROR: Dynamics evaluation failed: {e}")
-        return [0.0] * len(point)
+        return None
 
-def _parse_barrier_expression_simple(barrier_expr: str) -> Dict[str, Any]:
-    return {'expression': barrier_expr, 'original': barrier_expr}
-
-
-def _evaluate_barrier_simple(barrier_info: Dict[str, Any], point: List[float]) -> float:
+def evaluate_barrier_simple(expression: str, point: List[float]) -> float:
     # evaluate barrier function at given point
     try:
-        expression = barrier_info['expression']
         
         var_map = {f'x{i+1}': point[i] if i < len(point) else 0.0 for i in range(10)}
         
@@ -754,10 +740,11 @@ def _evaluate_barrier_simple(barrier_info: Dict[str, Any], point: List[float]) -
         result = eval(expression, safe_dict)
         
         if not math.isfinite(result):
-            return 0.0
+            print(f"ERROR: Barrier evaluation resulted in non-finite value ({result})")
+            return None
             
         return float(result)
         
     except Exception as e:
         print(f"ERROR: Barrier evaluation failed: {e}")
-        return 0.0
+        return None
