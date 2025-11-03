@@ -57,7 +57,7 @@ def generate_samples_for_barrier_validation(problem: Dict[str, Any], num_samples
         unsafe_samples_generated = 0
         max_total_attempts = unsafe_count * 20
         
-        for attempt in range(max_total_attempts):
+        for _ in range(max_total_attempts):
             if unsafe_samples_generated >= unsafe_count:
                 break
                 
@@ -87,10 +87,10 @@ def generate_samples_for_barrier_validation(problem: Dict[str, Any], num_samples
         print(f"Successfully generated {unsafe_samples_generated} unsafe samples")
         
         # 3 
-        remaining = num_samples - len(unified_samples)
-        print(f"Generating {remaining} uniform samples from state space set X")
+        num_remaining = num_samples - len(unified_samples)
+        print(f"Generating {num_remaining} uniform samples from state space set X")
         
-        for i in range(remaining):
+        for i in range(num_remaining):
             try:
                 sample_point = sample_from_set(state_space_X)
                 trajectory = simulate_one_step(sample_point, problem['dynamics'])
@@ -343,7 +343,6 @@ def sample_from_set(set_description: Dict[str, Any]) -> List[float]:
     except Exception as e:
         print(f"ERROR: Sampling from set failed: {e}")
         return None
-        # return [0.0] * 3  
 
 def sample_from_unsafe_set(unsafe_set_description: Dict[str, Any]) -> List[float]:
     try:
@@ -407,12 +406,12 @@ def sample_from_unsafe_set(unsafe_set_description: Dict[str, Any]) -> List[float
         print(f"ERROR: Unsafe set sampling failed: {e}")
         raise ValueError(f"Failed to sample from unsafe set: {e}")
 
-def is_point_in_set(point: List[float], set_desc: Dict[str, Any]) -> bool:
+def is_point_in_set(point: List[float], set_description: Dict[str, Any]) -> bool:
     try:
-        if set_desc.get('type') == 'ball':
-            center = set_desc.get('center')
-            radius = set_desc.get('radius')
-            is_complement = set_desc.get('complement', False)
+        if set_description.get('type') == 'ball':
+            center = set_description.get('center')
+            radius = set_description.get('radius')
+            is_complement = set_description.get('complement', False)
             
             if len(point) != len(center):
                 return False
@@ -422,9 +421,9 @@ def is_point_in_set(point: List[float], set_desc: Dict[str, Any]) -> bool:
             
             return not inside_ball if is_complement else inside_ball
                 
-        elif set_desc.get('type') == 'bounds':
-            bounds = set_desc.get('bounds')
-            is_complement = set_desc.get('complement', False)
+        elif set_description.get('type') == 'bounds':
+            bounds = set_description.get('bounds')
+            is_complement = set_description.get('complement', False)
             
             if len(point) != len(bounds):
                 return False
@@ -448,38 +447,31 @@ def is_point_in_set(point: List[float], set_desc: Dict[str, Any]) -> bool:
 
 def simulate_one_step(initial_point: List[float], dynamics: str) -> List[List[float]]:
     # simulate 1 step
+
+    if isinstance(dynamics, str):
+            is_discrete = '[k+1]' in dynamics or '[k]' in dynamics
+    else:
+        raise TypeError(f"Invalid dynamics type - expected str")
+    
     try:
         trajectory = [initial_point.copy()]
-        next_point = apply_dynamics_step(initial_point, dynamics)
-        trajectory.append(next_point)
-        return trajectory
-    except Exception as e:
-        print(f"ERROR: One-step simulation failed: {e}")
-        return None
-
-def apply_dynamics_step(point: List[float], dynamics: str) -> List[float]:
-    try:
-        if isinstance(dynamics, str):
-            is_discrete = '[k+1]' in dynamics or '[k]' in dynamics
-        else:
-            raise TypeError(f"Invalid dynamics type - expected str")
 
         if is_discrete:
-            next_state = evaluate_dynamics_at_point(point, dynamics)
-            return next_state
+            next_point = dynamics_function(initial_point, dynamics)
         else:
             dt = 0.01
-            derivatives = evaluate_dynamics_at_point(point, dynamics)
-            
+            derivatives = dynamics_function(initial_point, dynamics)
             next_point = []
-            for i, (coord, deriv) in enumerate(zip(point, derivatives)):
+            for i, (coord, deriv) in enumerate(zip(initial_point, derivatives)):
                 next_coord = coord + dt * deriv
                 next_point.append(next_coord)
             
-            return next_point
+        trajectory.append(next_point)
+
+        return trajectory
 
     except Exception as e:
-        print(f"ERROR: Dynamics step failed: {e}")
+        print(f"ERROR: One-step simulation failed: {e}")
         return None
 
 def validate_barrier_on_samples(barrier_expr: str, problem: Dict[str, Any], samples: Dict[str, Any], controller_expr: str = None) -> Dict[str, Any]:
@@ -516,7 +508,7 @@ def validate_barrier_on_samples(barrier_expr: str, problem: Dict[str, Any], samp
             sample_point = sample['point']
 
             trajectory = simulate_one_step(sample_point, working_problem['dynamics'])            
-            barrier_value = evaluate_barrier_simple(barrier_expr, sample_point)
+            barrier_value = barrier_function(barrier_expr, sample_point)
             
             # Condition 1
             if sample['in_initial_set']:
@@ -544,8 +536,8 @@ def validate_barrier_on_samples(barrier_expr: str, problem: Dict[str, Any], samp
                 x_point = trajectory[0]
                 next_point = trajectory[1]
                 
-                barrier_x = evaluate_barrier_simple(barrier_expr, x_point)
-                barrier_next = evaluate_barrier_simple(barrier_expr, next_point)
+                barrier_x = barrier_function(barrier_expr, x_point)
+                barrier_next = barrier_function(barrier_expr, next_point)
                 
                 # For standard barriers: B(f(x)) - B(x) ≤ 0
                 dynamics_violation = barrier_next - barrier_x
@@ -644,11 +636,11 @@ def substitute_controller_into_dynamics_for_samples(dynamics_str: str, controlle
         dynamics_str = re.sub(r'\[k\+1\]', '', dynamics_str)                # Remove [k+1]
         dynamics_str = re.sub(r'\[k\]', '', dynamics_str)                   # Remove [k]
 
-        equations = [eq.strip() for eq in dynamics_str.split(',')]
+        system_equations = [eq.strip() for eq in dynamics_str.split(',')]
         
         substituted_equations = []
         
-        for eq in equations:
+        for eq in system_equations:
             eq = eq.strip()
             
             for param_name, param_expr in controller_dict.items():
@@ -671,7 +663,7 @@ def substitute_controller_into_dynamics_for_samples(dynamics_str: str, controlle
         return None
         # return dynamics_str 
 
-def evaluate_dynamics_at_point(point: List[float], dynamics: str) -> List[float]:
+def dynamics_function(point: List[float], dynamics: str) -> List[float]:
     # evaluate dynamics at a given point
     try:
         if isinstance(dynamics, str):
@@ -683,17 +675,17 @@ def evaluate_dynamics_at_point(point: List[float], dynamics: str) -> List[float]
             dynamics = re.sub(r'\[k\+1\]', '', dynamics)                    # Remove [k+1]
             dynamics = re.sub(r'\[k\]', '', dynamics) 
 
-        equations = [eq.strip() for eq in dynamics.split(',')]
+        system_equations = [eq.strip() for eq in dynamics.split(',')]
         derivatives = []
         
-        var_map = {f'x{i+1}': point[i] if i < len(point) else 0.0 for i in range(10)}
+        variable_map = {f'x{i+1}': point[i] if i < len(point) else 0.0 for i in range(10)}
         
-        for eq in equations:
+        for eq in system_equations:
             if '=' in eq:
                 rhs = eq.split('=')[1].strip()
         
-                safe_dict = var_map.copy()
-                safe_dict.update({
+                var_values = variable_map.copy()
+                var_values.update({
                     '__builtins__': {},
                     'exp':  math.exp,
                     'sin':  math.sin, 'cos': math.cos,
@@ -701,15 +693,11 @@ def evaluate_dynamics_at_point(point: List[float], dynamics: str) -> List[float]
                     'max':  max, 'min': min,
                     'pow':  pow, 'tanh': math.tanh})
                 
-                try:
-                    result = eval(rhs, safe_dict)
-                    derivatives.append(float(result))
-                except Exception as eval_error:
-                    print(f"DEBUG: Eval failed for '{rhs}': {eval_error}")
-                    return None
+                result = eval(rhs, var_values)
+                derivatives.append(float(result))
         
-        if len(derivatives) != len(equations):
-            logger.error(f"Dimension mismatch: expected {len(equations)} derivatives, got {len(derivatives)}")
+        if len(derivatives) != len(system_equations):
+            logger.error(f"Dimension mismatch: expected {len(system_equations)} derivatives, got {len(derivatives)}")
             return None
             
         return derivatives
@@ -718,14 +706,14 @@ def evaluate_dynamics_at_point(point: List[float], dynamics: str) -> List[float]
         print(f"ERROR: Dynamics evaluation failed: {e}")
         return None
 
-def evaluate_barrier_simple(expression: str, point: List[float]) -> float:
+def barrier_function(expression: str, point: List[float]) -> float:
     # evaluate barrier function at given point
     try:
         
-        var_map = {f'x{i+1}': point[i] if i < len(point) else 0.0 for i in range(10)}
+        variable_map = {f'x{i+1}': point[i] if i < len(point) else 0.0 for i in range(10)}
         
-        safe_dict = var_map.copy()
-        safe_dict.update({
+        var_values = variable_map.copy()
+        var_values.update({
             '__builtins__': {},
             'exp': math.exp,
             'sin': math.sin,
@@ -737,7 +725,7 @@ def evaluate_barrier_simple(expression: str, point: List[float]) -> float:
             'pow': pow
         })
         
-        result = eval(expression, safe_dict)
+        result = eval(expression, var_values)
         
         if not math.isfinite(result):
             print(f"ERROR: Barrier evaluation resulted in non-finite value ({result})")

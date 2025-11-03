@@ -6,15 +6,16 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def clean_and_extract_barrier(barrier_str: str) -> str:
+def clean_barrier_expression(synthesized_barrier: str) -> str:
     # extract and clean barrier certificate 
-    if not barrier_str or not isinstance(barrier_str, str):
+
+    if not synthesized_barrier or not isinstance(synthesized_barrier, str):
         return ""
     
     try:
         # common prefixes
-        barrier_str = re.sub(r'B\(x\)\s*=\s*', '', barrier_str, flags=re.IGNORECASE)
-        barrier_str = re.sub(r'barrier\s*certificate\s*:?\s*', '', barrier_str, flags=re.IGNORECASE)
+        synthesized_barrier = re.sub(r'B\(x\)\s*=\s*', '', synthesized_barrier, flags=re.IGNORECASE)
+        synthesized_barrier = re.sub(r'barrier\s*certificate\s*:?\s*', '', synthesized_barrier, flags=re.IGNORECASE)
         
         # unicode subscripts handling
         unicode_subscripts = {
@@ -22,7 +23,7 @@ def clean_and_extract_barrier(barrier_str: str) -> str:
             '₅': '5', '₆': '6', '₇': '7', '₈': '8', '₉': '9'
         }
         for unicode_char, ascii_char in unicode_subscripts.items():
-            barrier_str = barrier_str.replace(unicode_char, ascii_char)
+            synthesized_barrier = synthesized_barrier.replace(unicode_char, ascii_char)
         
         # unicode superscripts handling 
         unicode_superscripts = {
@@ -30,78 +31,78 @@ def clean_and_extract_barrier(barrier_str: str) -> str:
             '⁶': '**6', '⁷': '**7', '⁸': '**8', '⁹': '**9'
         }
         for unicode_char, ascii_notation in unicode_superscripts.items():
-            barrier_str = barrier_str.replace(unicode_char, ascii_notation)
+            synthesized_barrier = synthesized_barrier.replace(unicode_char, ascii_notation)
             
         # LaTeX escape characters
-        barrier_str = barrier_str.replace('\\\\', '\\').replace('\\ ', ' ')
+        synthesized_barrier = synthesized_barrier.replace('\\\\', '\\').replace('\\ ', ' ')
         
         # LaTeX multiplication
-        barrier_str = barrier_str.replace('\\cdot', '*')
-        barrier_str = barrier_str.replace('\\times', '*')
-        barrier_str = barrier_str.replace('·', '*')  
+        synthesized_barrier = synthesized_barrier.replace('\\cdot', '*')
+        synthesized_barrier = synthesized_barrier.replace('\\times', '*')
+        synthesized_barrier = synthesized_barrier.replace('·', '*')  
         
         # subscript notation x_i -> xi
-        barrier_str = re.sub(r'x_(\d+)', r'x\1', barrier_str)
+        synthesized_barrier = re.sub(r'x_(\d+)', r'x\1', synthesized_barrier)
         
-        barrier_str = re.sub(r'x(\d+)\^(\d+)', r'x\1**\2', barrier_str)                     # x1^4 -> x1**4
-        barrier_str = re.sub(r'x\^(\d+)', r'x**\1', barrier_str)                            # x^4 -> x**4
+        synthesized_barrier = re.sub(r'x(\d+)\^(\d+)', r'x\1**\2', synthesized_barrier)                     # x1^4 -> x1**4
+        synthesized_barrier = re.sub(r'x\^(\d+)', r'x**\1', synthesized_barrier)                            # x^4 -> x**4
         
         # general superscript with parentheses like (--)^n -> (--)**n
-        barrier_str = re.sub(r'\^(\d+)', r'**\1', barrier_str)
+        synthesized_barrier = re.sub(r'\^(\d+)', r'**\1', synthesized_barrier)
         
         # standalone ^ to **
-        barrier_str = barrier_str.replace('^', '**')
+        synthesized_barrier = synthesized_barrier.replace('^', '**')
         
         # backslashes
-        barrier_str = re.sub(r'\\', '', barrier_str)
+        synthesized_barrier = re.sub(r'\\', '', synthesized_barrier)
         
         # Clean formatting
-        barrier_str = barrier_str.strip().strip('"\'.,;:')
+        synthesized_barrier = synthesized_barrier.strip().strip('"\'.,;:')
         
-        barrier_str = re.sub(r'(\d)([x])', r'\1*\2', barrier_str)                           # 2x -> 2*x
-        barrier_str = re.sub(r'(x\d+)([x])', r'\1*\2', barrier_str)                         # x1x2 -> x1*x2
-        barrier_str = re.sub(r'([x\d])\((?!.*(?:sin|cos))', r'\1*(', barrier_str)           # x( -> x*( 
-        barrier_str = re.sub(r'\)([x\d])', r')*\1', barrier_str)                            # )x -> )*x
+        synthesized_barrier = re.sub(r'(\d)([x])', r'\1*\2', synthesized_barrier)                           # 2x -> 2*x
+        synthesized_barrier = re.sub(r'(x\d+)([x])', r'\1*\2', synthesized_barrier)                         # x1x2 -> x1*x2
+        synthesized_barrier = re.sub(r'([x\d])\((?!.*(?:sin|cos))', r'\1*(', synthesized_barrier)           # x( -> x*( 
+        synthesized_barrier = re.sub(r'\)([x\d])', r')*\1', synthesized_barrier)                            # )x -> )*x
         
         # common issues
-        barrier_str = re.sub(r'\s+', ' ', barrier_str)
+        synthesized_barrier = re.sub(r'\s+', ' ', synthesized_barrier)
         
         # balance parentheses
-        barrier_str = balance_parentheses(barrier_str)
+        synthesized_barrier = balance_parentheses(synthesized_barrier)
         
         # trailing operators
-        barrier_str = re.sub(r'[+\-\*]+\s*$', '', barrier_str).strip()
+        synthesized_barrier = re.sub(r'[+\-\*]+\s*$', '', synthesized_barrier).strip()
         
         # extract mathematical expression
-        extracted_expr = extract_mathematical_expression(barrier_str)
+        extracted_expr = extract_mathematical_expression(synthesized_barrier)
         
         if extracted_expr:
-            barrier_str = extracted_expr
+            synthesized_barrier = extracted_expr
         
         # cleanup
-        barrier_str = barrier_str.strip()
+        synthesized_barrier = synthesized_barrier.strip()
         
         # x1-x10 not x₁-x₁₀
         for i in range(1, 11):
-            barrier_str = re.sub(f'x₍{i}₎', f'x{i}', barrier_str)
+            synthesized_barrier = re.sub(f'x₍{i}₎', f'x{i}', synthesized_barrier)
         
         # one more parentheses balance check
-        barrier_str = balance_parentheses(barrier_str)
+        synthesized_barrier = balance_parentheses(synthesized_barrier)
         
         # check basic structure including variables x1-x10
-        if len(barrier_str) < 3 or not (re.search(r'x\d+', barrier_str) or re.search(r'(?:sin|cos)\(', barrier_str)):
+        if len(synthesized_barrier) < 3 or not (re.search(r'x\d+', synthesized_barrier) or re.search(r'(?:sin|cos)\(', synthesized_barrier)):
             return ""
         
         # ensure it doesn't end with operators
-        barrier_str = re.sub(r'[+\-\*]+$', '', barrier_str).strip()
+        synthesized_barrier = re.sub(r'[+\-\*]+$', '', synthesized_barrier).strip()
         
-        if barrier_str:
-            logger.info(f"Cleaned barrier expression: '{barrier_str}'")
-        
-        return barrier_str
+        if synthesized_barrier:
+            logger.info(f"Cleaned barrier expression: '{synthesized_barrier}'")
+
+        return synthesized_barrier
         
     except Exception as e:
-        logger.warning(f"Error cleaning barrier '{barrier_str}': {e}")
+        logger.warning(f"Error cleaning barrier '{synthesized_barrier}': {e}")
         return ""
 
 def balance_parentheses(expression: str) -> str:
@@ -169,88 +170,88 @@ def extract_mathematical_expression(text: str) -> str:
         logger.warning(f"Error extracting mathematical expression from '{text}': {e}")
         return text
 
-def validate_trigonometric_syntax(expression: str) -> bool:
+def validate_trigonometric_syntax(barrier_expression: str) -> bool:
     try:
-        trig_functions = re.findall(r'(?:sin|cos)\([^)]*\)', expression)
+        trigonometric_functions = re.findall(r'(?:sin|cos)\([^)]*\)', barrier_expression)
         
-        for func in trig_functions:
-            open_count = func.count('(')
-            close_count = func.count(')')
+        for function in trigonometric_functions:
+            open_count = function.count('(')
+            close_count = function.count(')')
             
             if open_count != close_count:
-                logger.warning(f"Unbalanced parentheses in trigonometric function: {func}")
+                logger.warning(f"Unbalanced parentheses in trigonometric function: {function}")
                 return False
             
-            inner_content = re.search(r'(?:sin|cos)\(([^)]*)\)', func)
+            inner_content = re.search(r'(?:sin|cos)\(([^)]*)\)', function)
             if inner_content and inner_content.group(1).strip():
                 inner = inner_content.group(1)
                 # must contain x1-x10 or mathematical expressions
                 if not (re.search(r'x\d+', inner) or re.search(r'[+\-\*\d]', inner)):
-                    logger.warning(f"Invalid trigonometric function content: {func}")
+                    logger.warning(f"Invalid trigonometric function content: {function}")
                     return False
             else:
-                logger.warning(f"Empty trigonometric function: {func}")
+                logger.warning(f"Empty trigonometric function: {function}")
                 return False
         
         return True
         
     except Exception as e:
-        logger.warning(f"Error validating trigonometric syntax in '{expression}': {e}") 
+        logger.warning(f"Error validating trigonometric syntax in '{barrier_expression}': {e}") 
         return False
 
-def parse_barrier_certificate(barrier_str: str) -> Tuple[Optional[sp.Expr], List[sp.Symbol]]:
+def parse_barrier_certificate(synthesized_barrier: str) -> Tuple[Optional[sp.Expr], List[sp.Symbol]]:
     # parse barrier certificate string into symbolic expression
     try:
-        cleaned_str = clean_and_extract_barrier(barrier_str)
-        if not cleaned_str:
-            logger.warning("Empty barrier string after cleaning")
+        cleaned_barrier = clean_barrier_expression(synthesized_barrier)
+        if not cleaned_barrier:
+            print("ERROR: Empty barrier string after cleaning")
             return None, []
         
-        logger.info(f"Parsing cleaned barrier: '{cleaned_str}'")
+        logger.info(f"Parsing cleaned barrier: '{cleaned_barrier}'")
         
         # extract variables
-        variables = sorted(set(re.findall(r'\bx\d+\b', cleaned_str)), key=lambda x: int(x[1:]))
-        if not variables:
-            trig_vars = re.findall(r'(?:sin|cos)\([^)]*\b(x\d+)\b[^)]*\)', cleaned_str)
+        barrier_variables = sorted(set(re.findall(r'\bx\d+\b', cleaned_barrier)), key=lambda x: int(x[1:]))
+        if not barrier_variables:
+            trig_vars = re.findall(r'(?:sin|cos)\([^)]*\b(x\d+)\b[^)]*\)', cleaned_barrier)
             if trig_vars:
-                variables = sorted(set(trig_vars), key=lambda x: int(x[1:]))
+                barrier_variables = sorted(set(trig_vars), key=lambda x: int(x[1:]))
             else:
-                logger.error(f"No variables found in barrier expression")
+                print("ERROR: No variables found in barrier expression")
                 return None, []
         
-        var_symbols = [sp.Symbol(var, real=True) for var in variables]
+        var_symbols = [sp.Symbol(var, real=True) for var in barrier_variables]
         
         try:
-            expr_str = cleaned_str
+            cleaned_barrier_expr = cleaned_barrier
             
-            expr_str = re.sub(r'(\d)([x])', r'\1*\2', expr_str)             # 2x -> 2*x
-            expr_str = re.sub(r'([x\d])\(', r'\1*(', expr_str)              # x( -> x*(
-            expr_str = re.sub(r'\)([x\d])', r')*\1', expr_str)              # )x -> )*x
+            cleaned_barrier_expr = re.sub(r'(\d)([x])', r'\1*\2', cleaned_barrier_expr)             # 2x -> 2*x
+            cleaned_barrier_expr = re.sub(r'([x\d])\(', r'\1*(', cleaned_barrier_expr)              # x( -> x*(
+            cleaned_barrier_expr = re.sub(r'\)([x\d])', r')*\1', cleaned_barrier_expr)              # )x -> )*x
             
-            expr_str = re.sub(r'sin\*\(', 'sin(', expr_str)
-            expr_str = re.sub(r'cos\*\(', 'cos(', expr_str)
+            cleaned_barrier_expr = re.sub(r'sin\*\(', 'sin(', cleaned_barrier_expr)
+            cleaned_barrier_expr = re.sub(r'cos\*\(', 'cos(', cleaned_barrier_expr)
             
-            expr_str = re.sub(r'(\d)\.(\d)', r'\1.\2', expr_str)
+            cleaned_barrier_expr = re.sub(r'(\d)\.(\d)', r'\1.\2', cleaned_barrier_expr)
             
-            logger.info(f"Final expression for parsing: '{expr_str}'")
+            logger.info(f"Final expression for parsing: '{cleaned_barrier_expr}'")
             
-            expr = sp.sympify(expr_str, evaluate=True)
+            cleaned_barrier_sympy = sp.sympify(cleaned_barrier_expr, evaluate=True)
             
             # validate
-            if expr.free_symbols or (hasattr(expr, 'has') and (expr.has(sp.sin) or expr.has(sp.cos))):
-                logger.info(f"Successfully parsed expression: {expr}")
-                return expr, var_symbols
+            if cleaned_barrier_sympy.free_symbols or (hasattr(cleaned_barrier_sympy, 'has') and (cleaned_barrier_sympy.has(sp.sin) or cleaned_barrier_sympy.has(sp.cos))):
+                logger.info(f"Successfully parsed expression: {cleaned_barrier_sympy}")
+                return cleaned_barrier_sympy, var_symbols
             else:
                 logger.warning("Expression has no variables or functions")
                 return None, var_symbols
                 
         except sp.SympifyError as e:
-            logger.warning(f"SymPy failed to parse expression '{cleaned_str}': {e}")
+            logger.warning(f"SymPy failed to parse expression '{cleaned_barrier}': {e}")
             return None, var_symbols
         except Exception as e:
-            logger.warning(f"Failed to parse expression '{cleaned_str}': {e}")
+            logger.warning(f"Failed to parse expression '{cleaned_barrier}': {e}")
             return None, var_symbols
         
     except Exception as e:
-        logger.error(f"Error parsing barrier certificate '{barrier_str}': {e}")
+        logger.error(f"Error parsing barrier certificate '{synthesized_barrier}': {e}")
         return None, []

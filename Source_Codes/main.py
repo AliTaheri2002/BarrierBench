@@ -4,7 +4,7 @@ import json
 import time
 import re
 from typing import Dict, List, Tuple, Optional, Any
-from barrier_verification import get_condition_results
+from barrier_verification import validate_barrier_with_smt
 from data_structures import generate_samples_for_barrier_validation, validate_barrier_on_samples, parse_controller_expressions
 import anthropic
 
@@ -52,8 +52,8 @@ class BarrierDataset:
 
     def find_most_similar(self, target_problem: Dict[str, Any]) -> Optional[Dict]:
         # filter + LLM selection
-        print(f"\nCritical Filter: Starting with {len(self.test_cases)} candidates")
-        target_features = self.extract_critical_features(target_problem)
+        print(f"\n Filter: Starting with {len(self.test_cases)} candidates")
+        target_features = self.extract_features(target_problem)
         if not target_features:
             print("Failed to extract target features")
             return None
@@ -61,7 +61,7 @@ class BarrierDataset:
         print(f"Target features: {target_features}")
         compatible_candidates = []
         for i, case in enumerate(self.test_cases):
-            candidate_features = self.extract_critical_features(case['problem'])
+            candidate_features = self.extract_features(case['problem'])
             
             if self.check_compatible(target_features, candidate_features):
                 compatible_candidates.append(case)
@@ -74,17 +74,13 @@ class BarrierDataset:
             print("No compatible candidates found")
             return None
         
-        if len(compatible_candidates) == 1:
-            print("Single compatible candidate - using directly")
-            return compatible_candidates[0]
-        
         # LLM selection
         print(f"Sending {len(compatible_candidates)} candidates to LLM for selection")
         best_candidate = self.llm_select_from_compatible(target_problem, compatible_candidates)
         
         return best_candidate
 
-    def extract_critical_features(self, problem: Dict[str, Any]) -> Optional[Dict]:
+    def extract_features(self, problem: Dict[str, Any]) -> Optional[Dict]:
         # extract features
         try:
             dynamics = problem.get('dynamics', '')
@@ -94,9 +90,9 @@ class BarrierDataset:
             features = {
                 
                 'dimension'  : self.get_system_dimension(dynamics),            # 1. System Dimension
-                'time_domain': self.get_time_domain(dynamics),                 # 2. Time Domain
-                'linearity': self.get_linearity(dynamics),                     # 3. Linearity
-                'set_topology': self.get_set_topology(initial_set, unsafe_set) # 4. Set Topology
+                'time_domain': self.get_system_time_domain(dynamics),                 # 2. Time Domain
+                'linearity': self.get_system_linearity(dynamics),                     # 3. Linearity
+                'set_topology': self.get_system_topology(initial_set, unsafe_set) # 4. Set Topology
             }
 
             return features
@@ -110,7 +106,7 @@ class BarrierDataset:
         variables = set(re.findall(r'x(\d+)', dynamics))
         return len(variables)
 
-    def get_time_domain(self, dynamics: str) -> str:
+    def get_system_time_domain(self, dynamics: str) -> str:
         # determine time domain
         if 'dt' in dynamics or 'd/dt' in dynamics:
             return 'continuous'
@@ -119,7 +115,7 @@ class BarrierDataset:
         else:
             return 'unknown'
 
-    def get_linearity(self, dynamics: str) -> str:
+    def get_system_linearity(self, dynamics: str) -> str:
         # determine linearity
         if re.search(r'x\d+\*\*[2-9]', dynamics) or re.search(r'x\d+\*x\d+', dynamics):
             return 'nonlinear'
@@ -128,7 +124,7 @@ class BarrierDataset:
         else:
             return 'unknown'
 
-    def get_set_topology(self, initial_set: Dict, unsafe_set: Dict) -> str:
+    def get_system_topology(self, initial_set: Dict, unsafe_set: Dict) -> str:
         init_type = initial_set.get('type', 'unknown')
         unsafe_type = unsafe_set.get('type', 'unknown')
         unsafe_complement = unsafe_set.get('complement', False)
@@ -734,7 +730,7 @@ class BarrierSynthesis:
                 logger.warning(f"Sample validation unavailable: {e}")
 
             # SMT verification 
-            smt_validation = get_condition_results(
+            smt_validation = validate_barrier_with_smt(
                 barrier_expr,
                 working_problem['initial_set'],
                 working_problem['unsafe_set'], 
@@ -1062,7 +1058,6 @@ class BarrierSynthesis:
 if __name__ == "__main__":
 
     #================================ Continuous-Time Systems ==================================#
-
     
     test_problem = {
         "dynamics": "dx1/dt = -0.7*x1 + 0.1*x2, dx2/dt = -0.1*x1 - 0.8*x2, dx3/dt = -0.05*x1 - 1.0*x3, dx4/dt = -0.03*x2 - 1.1*x4",
@@ -1078,6 +1073,68 @@ if __name__ == "__main__":
           "complement": True
         }
     }
+
+    test_problem = {
+        "dynamics": "dx1/dt = x2 + u0, dx2/dt = -0.05*sin(x1) - 0.02*x2 + 0.01*x3 + u1, dx3/dt = -0.1*x3 + 0.02*x1 + u2, dx4/dt = -0.03*x4 + 0.01*x2 + u3",
+        "initial_set": {
+          "type": "ball",
+          "radius": 0.3,
+          "center": [0, 0, 0, 0]
+        },
+        "unsafe_set": {
+          "type": "ball",
+          "radius": 2.5,
+          "center": [0, 0, 0, 0],
+          "complement": True
+        },
+        "controller_parameters": "u0, u1, u2, u3"
+    }
+
+    test_problem = {
+        "dynamics": "dx1/dt = -0.1*x1 + 0.05*x2, dx2/dt = -0.05*x1 - 0.1*x2, dx3/dt = -0.2*x3, dx4/dt = -0.3*x4, dx5/dt = -0.25*x5, dx6/dt = -0.15*x6",
+        "initial_set": {
+          "type": "ball",
+          "radius": 1.0,
+          "center": [0, 0, 0, 0, 0, 0]
+        },
+        "unsafe_set": {
+          "type": "ball",
+          "radius": 3.5,
+          "center": [0, 0, 0, 0, 0, 0],
+          "complement": True
+        }
+      }
+
+    test_problem = {
+        "dynamics": "dx1/dt = x2 + u0, dx2/dt = sin(x1) + u1",
+        "initial_set": {
+          "type": "ball",
+          "radius": 0.3,
+          "center": [0, 0]
+        },
+        "unsafe_set": {
+          "type": "ball",
+          "radius": 1.5,
+          "center": [0, 0],
+          "complement": True
+        },
+        "controller_parameters": "u0, u1"
+      }
+
+    # test_problem = {
+    #     "dynamics": "x1[k+1] = 0.9*x1[k], x2[k+1] = 0.8*x2[k]",
+    #     "initial_set": {
+    #       "type": "ball",
+    #       "radius": 1,
+    #       "center": [0, 0]
+    #     },
+    #     "unsafe_set": {
+    #       "type": "ball",
+    #       "radius": 3,
+    #       "center": [0, 0],
+    #       "complement": True
+    #     }
+    #   }
 
     api_key = "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"
     
