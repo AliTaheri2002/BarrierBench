@@ -1074,52 +1074,52 @@ if __name__ == "__main__":
         }
     }
 
-    test_problem = {
-        "dynamics": "dx1/dt = x2 + u0, dx2/dt = -0.05*sin(x1) - 0.02*x2 + 0.01*x3 + u1, dx3/dt = -0.1*x3 + 0.02*x1 + u2, dx4/dt = -0.03*x4 + 0.01*x2 + u3",
-        "initial_set": {
-          "type": "ball",
-          "radius": 0.3,
-          "center": [0, 0, 0, 0]
-        },
-        "unsafe_set": {
-          "type": "ball",
-          "radius": 2.5,
-          "center": [0, 0, 0, 0],
-          "complement": True
-        },
-        "controller_parameters": "u0, u1, u2, u3"
-    }
+    # test_problem = {
+    #     "dynamics": "dx1/dt = x2 + u0, dx2/dt = -0.05*sin(x1) - 0.02*x2 + 0.01*x3 + u1, dx3/dt = -0.1*x3 + 0.02*x1 + u2, dx4/dt = -0.03*x4 + 0.01*x2 + u3",
+    #     "initial_set": {
+    #       "type": "ball",
+    #       "radius": 0.3,
+    #       "center": [0, 0, 0, 0]
+    #     },
+    #     "unsafe_set": {
+    #       "type": "ball",
+    #       "radius": 2.5,
+    #       "center": [0, 0, 0, 0],
+    #       "complement": True
+    #     },
+    #     "controller_parameters": "u0, u1, u2, u3"
+    # }
 
-    test_problem = {
-        "dynamics": "dx1/dt = -0.1*x1 + 0.05*x2, dx2/dt = -0.05*x1 - 0.1*x2, dx3/dt = -0.2*x3, dx4/dt = -0.3*x4, dx5/dt = -0.25*x5, dx6/dt = -0.15*x6",
-        "initial_set": {
-          "type": "ball",
-          "radius": 1.0,
-          "center": [0, 0, 0, 0, 0, 0]
-        },
-        "unsafe_set": {
-          "type": "ball",
-          "radius": 3.5,
-          "center": [0, 0, 0, 0, 0, 0],
-          "complement": True
-        }
-      }
+    # test_problem = {
+    #     "dynamics": "dx1/dt = -0.1*x1 + 0.05*x2, dx2/dt = -0.05*x1 - 0.1*x2, dx3/dt = -0.2*x3, dx4/dt = -0.3*x4, dx5/dt = -0.25*x5, dx6/dt = -0.15*x6",
+    #     "initial_set": {
+    #       "type": "ball",
+    #       "radius": 1.0,
+    #       "center": [0, 0, 0, 0, 0, 0]
+    #     },
+    #     "unsafe_set": {
+    #       "type": "ball",
+    #       "radius": 3.5,
+    #       "center": [0, 0, 0, 0, 0, 0],
+    #       "complement": True
+    #     }
+    #   }
 
-    test_problem = {
-        "dynamics": "dx1/dt = x2 + u0, dx2/dt = sin(x1) + u1",
-        "initial_set": {
-          "type": "ball",
-          "radius": 0.3,
-          "center": [0, 0]
-        },
-        "unsafe_set": {
-          "type": "ball",
-          "radius": 1.5,
-          "center": [0, 0],
-          "complement": True
-        },
-        "controller_parameters": "u0, u1"
-      }
+    # test_problem = {
+    #     "dynamics": "dx1/dt = x2 + u0, dx2/dt = sin(x1) + u1",
+    #     "initial_set": {
+    #       "type": "ball",
+    #       "radius": 0.3,
+    #       "center": [0, 0]
+    #     },
+    #     "unsafe_set": {
+    #       "type": "ball",
+    #       "radius": 1.5,
+    #       "center": [0, 0],
+    #       "complement": True
+    #     },
+    #     "controller_parameters": "u0, u1"
+    #   }
 
     # test_problem = {
     #     "dynamics": "x1[k+1] = 0.9*x1[k], x2[k+1] = 0.8*x2[k]",
@@ -1136,7 +1136,7 @@ if __name__ == "__main__":
     #     }
     #   }
 
-    api_key = "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"
+    api_key = "YOUR-API-KEY"
     
     synthesizer = BarrierSynthesis(
         api_key=api_key,
