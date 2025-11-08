@@ -254,18 +254,21 @@ def verify_invariance_condition(barrier_expression: sp.Expr, barrier_z3, z3_vari
             barrier_symbols = list(barrier_expression.free_symbols)
             barrier_symbols = sorted(barrier_symbols, key=lambda s: int(str(s)[1:]) if str(s).startswith('x') and str(s)[1:].isdigit() else 999)
             
+            dynamics_temp = dynamics
+            dynamics_temp = re.sub(r'\[k\+1\]', '', dynamics_temp)
+            dynamics_temp = re.sub(r'\[k\]', '', dynamics_temp)
+            
+            # Count number of equations in dynamics
+            system_equations = [eq.strip() for eq in dynamics_temp.split(',')]
+            system_dimension = len(system_equations)
+            
+            logger.info(f"System dimension from dynamics: {system_dimension}")
+            
+            # Build variable list based on system dimension
             all_system_variables = []
-            max_var_index = 2 
-            
-            for symbol in barrier_symbols:
-                symbol_str = str(symbol)
-                if symbol_str.startswith('x') and symbol_str[1:].isdigit():
-                    symbol_index = int(symbol_str[1:])
-                    max_var_index = max(max_var_index, symbol_index)
-            
-            for i in range(1, max_var_index + 1):
-                var_name = f'x{i}'
-
+            for idx in range(1, system_dimension + 1):
+                var_name = f'x{idx}'
+                
                 existing_sym = None
                 for symbol in barrier_symbols:
                     if str(symbol) == var_name:
@@ -277,9 +280,11 @@ def verify_invariance_condition(barrier_expression: sp.Expr, barrier_z3, z3_vari
                 else:
                     all_system_variables.append(sp.Symbol(var_name, real=True))
             
+            logger.info(f"System variables: {[str(v) for v in all_system_variables]}")
+            
             dynamics_exprs = parse_dynamics(dynamics, all_system_variables)
-            if len(dynamics_exprs) != len(all_system_variables):
-                raise ValueError(f'Dynamics dimension mismatch: got {len(dynamics_exprs)}, expected {len(all_system_variables)}')
+            if dynamics_exprs is None or len(dynamics_exprs) != len(all_system_variables):
+                raise ValueError(f'Dynamics dimension mismatch: got {len(dynamics_exprs) if dynamics_exprs else 0}, expected {len(all_system_variables)}')
             
             # extract controller parameters from dynamics
             controller_symbols = set()
@@ -395,7 +400,31 @@ def verify_invariance_condition(barrier_expression: sp.Expr, barrier_z3, z3_vari
 def get_set_constraints(set_description: Dict, z3_variables: Dict) -> List:
     constraints = []
     try:
-        if set_description.get('type') == 'ball':
+        set_type = set_description.get('type')
+        
+        # Handle union type
+        if set_type == 'union':
+            sets = set_description.get('sets', [])
+            if not sets:
+                logger.error("Empty sets in union")
+                return None
+            
+            # For union, point is in union if it's in ANY of the sets
+            # In Z3, this is: (constraints_set1) OR (constraints_set2) OR ...
+            union_constraints = []
+            for subset in sets:
+                subset_constraints = get_set_constraints(subset, z3_variables)
+                if subset_constraints:
+                    # AND all constraints for this subset
+                    union_constraints.append(z3.And(*subset_constraints))
+            
+            if union_constraints:
+                # OR all subset constraints together
+                constraints.append(z3.Or(*union_constraints))
+            
+            return constraints
+        
+        if set_type == 'ball':
             radius = set_description.get('radius')
             center = set_description.get('center')
             is_complement = set_description.get('complement', False)
@@ -418,17 +447,32 @@ def get_set_constraints(set_description: Dict, z3_variables: Dict) -> List:
                 # inside ball
                 constraints.append(squared_distance <= radius ** 2)
         
-        elif 'bounds' in set_description:
-            bounds = set_description['bounds']
+        elif set_type == 'bounds' or set_type == 'box':
+            bounds = set_description.get('bounds')
+            is_complement = set_description.get('complement', False)
             var_list = sorted(z3_variables.items(), key=lambda x: int(x[0][1:]) if x[0].startswith('x') and x[0][1:].isdigit() else 999)
             
-            for i, (var_name, z3_var) in enumerate(var_list):
-                if i < len(bounds):
-                    low, high = bounds[i]
-                    constraints.append(z3_var >= low)
-                    constraints.append(z3_var <= high)
+            if is_complement:
+                # For complement bounds, at least one dimension must be outside
+                outside_constraints = []
+                for i, (var_name, z3_var) in enumerate(var_list):
+                    if i < len(bounds):
+                        low, high = bounds[i]
+                        # Either below low OR above high
+                        outside_constraints.append(z3.Or(z3_var < low, z3_var > high))
+                
+                # At least one dimension outside
+                if outside_constraints:
+                    constraints.append(z3.Or(*outside_constraints))
+            else:
+                # Normal bounds - all dimensions must be inside
+                for i, (var_name, z3_var) in enumerate(var_list):
+                    if i < len(bounds):
+                        low, high = bounds[i]
+                        constraints.append(z3_var >= low)
+                        constraints.append(z3_var <= high)
         else:
-            logger.error(f"Unknown or missing set type")
+            logger.error(f"Unknown or missing set type: {set_type}")
             return None
     
     except Exception as e:

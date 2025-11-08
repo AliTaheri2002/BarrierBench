@@ -129,6 +129,15 @@ class BarrierDataset:
         unsafe_type = unsafe_set.get('type', 'unknown')
         unsafe_complement = unsafe_set.get('complement', False)
         
+        # Handle union type - check inner sets
+        if unsafe_type == 'union':
+            sets = unsafe_set.get('sets', [])
+            if sets:
+                # Get type of first set in union as representative
+                inner_types = [s.get('type', 'unknown') for s in sets]
+                # Use "union_of_X" to indicate it's a union
+                unsafe_type = f"union_of_{'_'.join(set(inner_types))}"
+        
         # Create a topology signature
         topology = f"{init_type}_to_{'complement_' if unsafe_complement else ''}{unsafe_type}"
         return topology
@@ -276,6 +285,7 @@ class BarrierSynthesis:
                 # refinements (up to R=4)
                 original_barrier = barrier_expr
                 original_controller = controller_expr if has_controller else None
+                original_verification = verification_result  
                 best_barrier = barrier_expr
                 best_controller = controller_expr if has_controller else None
                 best_score = score
@@ -287,10 +297,10 @@ class BarrierSynthesis:
                     for refinement in range(1, 5):                       # R=4 refinements
                         logger.info(f"Refinement {refinement}/4")
                         
-
                         if has_controller:
                             refined_expressions = self.refine_barrier(
-                                original_barrier, best_barrier, problem, best_verification, 
+                                original_barrier, best_barrier, problem, 
+                                original_verification,  
                                 refinement, iteration_refinements, has_controller, 
                                 original_controller, best_controller
                             )
@@ -299,7 +309,8 @@ class BarrierSynthesis:
                             refined_barrier, refined_controller = refined_expressions
                         else:
                             refined_barrier = self.refine_barrier(
-                                original_barrier, best_barrier, problem, best_verification, 
+                                original_barrier, best_barrier, problem, 
+                                original_verification, 
                                 refinement, iteration_refinements, has_controller
                             )
                             refined_controller = None
@@ -313,18 +324,23 @@ class BarrierSynthesis:
                         if not ref_verification:
                             continue
                         
-                        # store this refinement with its verification
-                        iteration_refinements.append({
-                            'refinement_num': refinement,
-                            'barrier': refined_barrier, 'controller': refined_controller if has_controller else None,
-                            'base_barrier': best_barrier, 'base_controller': best_controller if has_controller else None,
-                            'verification': ref_verification, 'failed_conditions': self.get_failed_conditions(ref_verification)})
-                        
                         ref_score = sum([ref_verification['condition_1'], ref_verification['condition_2'], ref_verification['condition_3']])
                         
                         logger.info(f"Refinement {refinement} score: {ref_score}/3")
                         
-                        if ref_score >= best_score:
+                        # Store this refinement with its verification
+                        iteration_refinements.append({
+                            'refinement_num': refinement,
+                            'barrier': refined_barrier, 
+                            'controller': refined_controller if has_controller else None,
+                            'base_barrier': best_barrier, 
+                            'base_controller': best_controller if has_controller else None,
+                            'verification': ref_verification,
+                            'failed_conditions': self.get_failed_conditions(ref_verification, detailed=True)
+                        })
+                        
+                        # Update best if this refinement is better
+                        if ref_score > best_score:
                             best_barrier = refined_barrier
                             best_controller = refined_controller if has_controller else None
                             best_score = ref_score
@@ -348,7 +364,6 @@ class BarrierSynthesis:
                         template_type="llm_generated_with_controller" if has_controller else "llm_generated",
                         controller_certificate=best_controller if has_controller else None
                     )
-
                     
                     result = {
                         'success': True,
@@ -387,7 +402,6 @@ class BarrierSynthesis:
                 'error': str(e),
                 'total_time': time.time() - start_time
             }
-    
     def get_template_and_barrier_from_llm(self, problem: Dict[str, Any], iteration: int, has_controller: bool = False):        
         dynamics = problem.get('dynamics', '')
         is_discrete = '[k+1]' in dynamics or '[k]' in dynamics
@@ -518,38 +532,56 @@ class BarrierSynthesis:
         if has_controller:
             context = "Previous barrier+controller attempts failed:\n"
             for hist in self.iteration_history[-3:]:  # Last 3 iterations max
-                failed_conditions = self.get_failed_conditions(hist.get('verification', {}))
+                failed_conditions = self.get_failed_conditions(hist.get('verification', {}), detailed=True)
                 barrier = hist['barrier']
                 controller = hist.get('controller', 'None')
                 context += f"- Barrier: {barrier}, Controller: {controller} (failed: {failed_conditions})\n"
         else:
             context = "Previous attempts failed:\n"
             for hist in self.iteration_history[-3:]:  # Last 3 iterations max
-                failed_conditions = self.get_failed_conditions(hist.get('verification', {}))
+                failed_conditions = self.get_failed_conditions(hist.get('verification', {}), detailed=True)
                 context += f"- Tried: {hist['barrier']} (failed: {failed_conditions})\n"
         
         context += f"\nImprove the {'barrier+controller' if has_controller else 'barrier'} structure to satisfy all conditions.\n\n"
         return context
 
-    def get_failed_conditions(self, verification: Dict) -> str:
+    def get_failed_conditions(self, verification: Dict, detailed: bool = False) -> str:
         # get failed conditions
         if not verification or not isinstance(verification, dict):
             return "unknown"
         
         failed = []
+        
+        # Check if this is from sample validation (has 'sample_counts' key)
+        has_sample_info = 'sample_counts' in verification
+        
         if not verification.get('condition_1', True):
-            failed.append("initial set")
+            if detailed and has_sample_info:
+                count = verification.get('sample_counts', {}).get('condition_1', 0)
+                failed.append(f"initial set ({count} samples)")
+            else:
+                failed.append("initial set")
+                
         if not verification.get('condition_2', True):
-            failed.append("unsafe set")
+            if detailed and has_sample_info:
+                count = verification.get('sample_counts', {}).get('condition_2', 0)
+                failed.append(f"unsafe set ({count} samples)")
+            else:
+                failed.append("unsafe set")
+                
         if not verification.get('condition_3', True):
-            failed.append("lie derivative")
+            if detailed and has_sample_info:
+                count = verification.get('sample_counts', {}).get('condition_3', 0)
+                failed.append(f"lie derivative ({count} samples)")
+            else:
+                failed.append("lie derivative")
         
         return ", ".join(failed) if failed else "none"
 
     def refine_barrier(self, original_barrier: str, current_barrier: str, problem: Dict[str, Any], 
-                   verification: Dict[str, Any], refinement_num: int, 
-                   iteration_refinements: List[Dict] = None, has_controller: bool = False,
-                   original_controller: str = None, current_controller: str = None):
+                verification: Dict[str, Any], refinement_num: int, 
+                iteration_refinements: List[Dict] = None, has_controller: bool = False,
+                original_controller: str = None, current_controller: str = None):
 
         dynamics = problem.get('dynamics', '')
         is_discrete = '[k+1]' in dynamics or '[k]' in dynamics
@@ -564,14 +596,14 @@ class BarrierSynthesis:
         
         if refinement_num == 1:
             if has_controller:
-                original_failed = self.get_failed_conditions(verification)
+                original_failed = self.get_failed_conditions(verification, detailed=True)
                 refinement_context = f"Original barrier: {original_barrier}, Original controller: {original_controller} (failed: {original_failed})\n"
             else:
-                original_failed = self.get_failed_conditions(verification)
+                original_failed = self.get_failed_conditions(verification, detailed=True)
                 refinement_context = f"Original barrier: {original_barrier} (failed: {original_failed})\n"
         else:
             if has_controller:
-                original_failed = self.get_failed_conditions(verification)
+                original_failed = self.get_failed_conditions(verification, detailed=True)
                 refinement_context = f"Original barrier: {original_barrier}, Original controller: {original_controller} (failed: {original_failed})\n"
                 
                 if iteration_refinements:
@@ -581,7 +613,7 @@ class BarrierSynthesis:
                         ref_failed = ref_data['failed_conditions']
                         refinement_context += f"Refinement {i}: Barrier: {ref_barrier}, Controller: {ref_controller} (failed: {ref_failed})\n"
             else:
-                original_failed = self.get_failed_conditions(verification)
+                original_failed = self.get_failed_conditions(verification, detailed=True)
                 refinement_context = f"Original barrier: {original_barrier} (failed: {original_failed})\n"
                 
                 if iteration_refinements:
@@ -679,8 +711,7 @@ class BarrierSynthesis:
             
         except Exception as e:
             logger.error(f"Refinement error: {e}")
-            return None
-    
+            return None    
     
     def verify_barrier(self, barrier_expr: str, problem: Dict[str, Any], controller_expr: str = None) -> Optional[Dict[str, Any]]:
         # verify barrier with gatekeeper + SMT
@@ -689,10 +720,10 @@ class BarrierSynthesis:
             system_vars = self.extract_system_variables(problem.get('dynamics', ''))
             barrier_vars = self.extract_barrier_variables(barrier_expr)
             
-            missing_vars = set(system_vars) - set(barrier_vars)
-            if missing_vars:
-                logger.error(f"Missing variables: {missing_vars}")
-                return None
+            # missing_vars = set(system_vars) - set(barrier_vars)
+            # if missing_vars:
+            #     logger.error(f"Missing variables: {missing_vars}")
+            #     return None
 
             working_problem = problem.copy()
             if controller_expr:
@@ -708,7 +739,7 @@ class BarrierSynthesis:
 
             # Sample gatekeeper 
             try:                
-                samples = generate_samples_for_barrier_validation(working_problem, num_samples=5000)        # the number of samples is a tradeoff between speed and coverage                
+                samples = generate_samples_for_barrier_validation(working_problem, num_samples=5000)
                 sample_validation = validate_barrier_on_samples(barrier_expr, working_problem, samples)
                 
                 if not sample_validation['success']:
@@ -718,10 +749,20 @@ class BarrierSynthesis:
                 sample_conditions = sample_validation['conditions_satisfied']
                 if not all(sample_conditions):
                     logger.warning("Gate-keeper rejection")
+                    
+                    # اضافه کردن تعداد نمونه‌های fail شده
+                    sample_counts = {}
+                    if 'condition_details' in sample_validation:
+                        details = sample_validation['condition_details']
+                        sample_counts['condition_1'] = details.get('condition_1_failed_count', 0)
+                        sample_counts['condition_2'] = details.get('condition_2_failed_count', 0)
+                        sample_counts['condition_3'] = details.get('condition_3_failed_count', 0)
+                    
                     return {
                         'condition_1': sample_conditions[0],
                         'condition_2': sample_conditions[1],
-                        'condition_3': sample_conditions[2]
+                        'condition_3': sample_conditions[2],
+                        'sample_counts': sample_counts  # اضافه شد
                     }
                 
                 logger.info("Gate-keeper approved, proceeding to SMT")
@@ -1053,90 +1094,26 @@ class BarrierSynthesis:
         
         self.iteration_history.append(entry)
 
-
 # Test
 if __name__ == "__main__":
 
     #================================ Continuous-Time Systems ==================================#
-    
+
+
     test_problem = {
-        "dynamics": "dx1/dt = -0.7*x1 + 0.1*x2, dx2/dt = -0.1*x1 - 0.8*x2, dx3/dt = -0.05*x1 - 1.0*x3, dx4/dt = -0.03*x2 - 1.1*x4",
+        "dynamics": "dx1/dt = -0.1*x1 - 0.5",
         "initial_set": {
-          "type": "ball",
-          "radius": 0.7,
-          "center": [0, 0, 0, 0]
+            "type": "bounds",
+            "bounds": [[1.0, 2.0]]
         },
         "unsafe_set": {
-          "type": "ball",
-          "radius": 2.8,
-          "center": [0, 0, 0, 0],
-          "complement": True
+            "type": "bounds",
+            "bounds": [[5.0, 6.0]],
+            "complement": False
         }
     }
 
-    # test_problem = {
-    #     "dynamics": "dx1/dt = x2 + u0, dx2/dt = -0.05*sin(x1) - 0.02*x2 + 0.01*x3 + u1, dx3/dt = -0.1*x3 + 0.02*x1 + u2, dx4/dt = -0.03*x4 + 0.01*x2 + u3",
-    #     "initial_set": {
-    #       "type": "ball",
-    #       "radius": 0.3,
-    #       "center": [0, 0, 0, 0]
-    #     },
-    #     "unsafe_set": {
-    #       "type": "ball",
-    #       "radius": 2.5,
-    #       "center": [0, 0, 0, 0],
-    #       "complement": True
-    #     },
-    #     "controller_parameters": "u0, u1, u2, u3"
-    # }
-
-    # test_problem = {
-    #     "dynamics": "dx1/dt = -0.1*x1 + 0.05*x2, dx2/dt = -0.05*x1 - 0.1*x2, dx3/dt = -0.2*x3, dx4/dt = -0.3*x4, dx5/dt = -0.25*x5, dx6/dt = -0.15*x6",
-    #     "initial_set": {
-    #       "type": "ball",
-    #       "radius": 1.0,
-    #       "center": [0, 0, 0, 0, 0, 0]
-    #     },
-    #     "unsafe_set": {
-    #       "type": "ball",
-    #       "radius": 3.5,
-    #       "center": [0, 0, 0, 0, 0, 0],
-    #       "complement": True
-    #     }
-    #   }
-
-    # test_problem = {
-    #     "dynamics": "dx1/dt = x2 + u0, dx2/dt = sin(x1) + u1",
-    #     "initial_set": {
-    #       "type": "ball",
-    #       "radius": 0.3,
-    #       "center": [0, 0]
-    #     },
-    #     "unsafe_set": {
-    #       "type": "ball",
-    #       "radius": 1.5,
-    #       "center": [0, 0],
-    #       "complement": True
-    #     },
-    #     "controller_parameters": "u0, u1"
-    #   }
-
-    # test_problem = {
-    #     "dynamics": "x1[k+1] = 0.9*x1[k], x2[k+1] = 0.8*x2[k]",
-    #     "initial_set": {
-    #       "type": "ball",
-    #       "radius": 1,
-    #       "center": [0, 0]
-    #     },
-    #     "unsafe_set": {
-    #       "type": "ball",
-    #       "radius": 3,
-    #       "center": [0, 0],
-    #       "complement": True
-    #     }
-    #   }
-
-    api_key = "YOUR-API-KEY"
+    api_key = "YOUR API KEY"
     
     synthesizer = BarrierSynthesis(
         api_key=api_key,

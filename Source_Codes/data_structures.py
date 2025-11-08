@@ -220,7 +220,9 @@ def compute_state_space_bounds(problem: Dict[str, Any]) -> Dict[str, Any]:
     
     if unsafe_set.get('complement', False):
         # for complement unsafe sets, X should be larger than the unsafe boundary
-        if unsafe_set.get('type') == 'bounds':
+        unsafe_type = unsafe_set.get('type')
+        
+        if unsafe_type == 'bounds' or unsafe_type == 'box':
             unsafe_bounds = unsafe_set.get('bounds', [])
             
             # expand unsafe bounds by 10% to create state space set X
@@ -247,7 +249,7 @@ def compute_state_space_bounds(problem: Dict[str, Any]) -> Dict[str, Any]:
             
             print(f"Expanded state space set X for complement: {expanded_bounds}")
             
-        elif unsafe_set.get('type') == 'ball':
+        elif unsafe_type == 'ball':
             center = unsafe_set.get('center')
             radius = unsafe_set.get('radius')
             
@@ -262,15 +264,15 @@ def compute_state_space_bounds(problem: Dict[str, Any]) -> Dict[str, Any]:
             
             print(f"Expanded state space set X for complement ball: radius {expanded_radius}")
         else:
-            print(f"ERROR: Unknown unsafe set type: {unsafe_set.get('type')}")
-            raise ValueError(f"Unsupported unsafe set type for complement: {unsafe_set.get('type')}")
+            print(f"ERROR: Unknown unsafe set type: {unsafe_type}")
+            raise ValueError(f"Unsupported unsafe set type for complement: {unsafe_type}")
     
     else:
         init_type = initial_set.get('type')
         unsafe_type = unsafe_set.get('type')
         
         # get bounds for initial set
-        if init_type == 'bounds':
+        if init_type == 'bounds' or init_type == 'box':
             init_bounds = initial_set.get('bounds')
         elif init_type == 'ball':
             center = initial_set.get('center')
@@ -279,8 +281,52 @@ def compute_state_space_bounds(problem: Dict[str, Any]) -> Dict[str, Any]:
         else:
             init_bounds = [[-1, 1], [-1, 1]]  # default
         
-        # get bounds for unsafe set
-        if unsafe_type == 'bounds':
+        # get bounds for unsafe set (handle union)
+        if unsafe_type == 'union':
+            # For union, compute bounds that cover all sets in the union
+            sets = unsafe_set.get('sets', [])
+            if not sets:
+                logger.error("Empty sets in union")
+                return None
+            
+            # Start with first set bounds
+            first_set = sets[0]
+            first_type = first_set.get('type')
+            
+            if first_type == 'bounds' or first_type == 'box':
+                union_bounds = [list(b) for b in first_set.get('bounds')]
+            elif first_type == 'ball':
+                center = first_set.get('center')
+                radius = first_set.get('radius')
+                union_bounds = [[c - radius * 1.1, c + radius * 1.1] for c in center]
+            else:
+                logger.error(f"Unknown set type in union: {first_type}")
+                return None
+            
+            # Expand to include all other sets
+            for subset in sets[1:]:
+                subset_type = subset.get('type')
+                
+                if subset_type == 'bounds' or subset_type == 'box':
+                    subset_bounds = subset.get('bounds')
+                elif subset_type == 'ball':
+                    center = subset.get('center')
+                    radius = subset.get('radius')
+                    subset_bounds = [[c - radius * 1.1, c + radius * 1.1] for c in center]
+                else:
+                    logger.warning(f"Skipping unknown subset type: {subset_type}")
+                    continue
+                
+                # Update union bounds to include this subset
+                for i, (union_bound, subset_bound) in enumerate(zip(union_bounds, subset_bounds)):
+                    union_bounds[i] = [
+                        min(union_bound[0], subset_bound[0]),
+                        max(union_bound[1], subset_bound[1])
+                    ]
+            
+            unsafe_bounds = union_bounds
+            
+        elif unsafe_type == 'bounds' or unsafe_type == 'box':
             unsafe_bounds = unsafe_set.get('bounds')
         elif unsafe_type == 'ball':
             center = unsafe_set.get('center')
@@ -306,12 +352,18 @@ def compute_state_space_bounds(problem: Dict[str, Any]) -> Dict[str, Any]:
         print(f"union state space set X: {union_bounds}")
     
     return uncertainty_set
-
+    
 def sample_from_set(set_description: Dict[str, Any]) -> List[float]:
     try:
-        if set_description.get('type') == 'ball':
+        set_type = set_description.get('type')
+        
+        if set_type == 'ball':
             center = set_description.get('center')
             radius = set_description.get('radius')
+            
+            if center is None or radius is None:
+                logger.error("Ball set description missing 'center' or 'radius'")
+                return None
             
             dim = len(center)
             random_dir = np.random.randn(dim)
@@ -321,10 +373,10 @@ def sample_from_set(set_description: Dict[str, Any]) -> List[float]:
             sample = np.array(center) + random_radius * random_dir
             return sample.tolist()
             
-        elif set_description.get('type') == 'bounds':
+        elif set_type == 'bounds' or set_type == 'box':
             bounds = set_description.get('bounds', [])
             if bounds is None or not bounds:
-                logger.error("Bounds set description missing or empty 'bounds' field")
+                logger.error("Bounds/box set description missing or empty 'bounds' field")
                 return None
             
             sample = []
@@ -337,8 +389,20 @@ def sample_from_set(set_description: Dict[str, Any]) -> List[float]:
                     return None
             
             return sample
+            
+        elif set_type == 'union':
+            # Handle union - randomly select one of the sets
+            sets = set_description.get('sets', [])
+            if not sets:
+                logger.error("Union set description missing or empty 'sets' field")
+                return None
+            
+            selected_set = sets[np.random.randint(0, len(sets))]
+            return sample_from_set(selected_set)
+            
         else:
-            raise ValueError(f"Unknown set type: {set_description.get('type')}")
+            logger.error(f"Unknown set type: {set_type}")
+            return None
             
     except Exception as e:
         print(f"ERROR: Sampling from set failed: {e}")
@@ -346,7 +410,19 @@ def sample_from_set(set_description: Dict[str, Any]) -> List[float]:
 
 def sample_from_unsafe_set(unsafe_set_description: Dict[str, Any]) -> List[float]:
     try:
-        if unsafe_set_description.get('type') == 'bounds':
+        set_type = unsafe_set_description.get('type')
+        
+        # Handle union type
+        if set_type == 'union':
+            sets = unsafe_set_description.get('sets', [])
+            if not sets:
+                raise ValueError("Empty sets in union")
+            
+            # Randomly select one of the sets to sample from
+            selected_set = sets[np.random.randint(0, len(sets))]
+            return sample_from_unsafe_set(selected_set)
+        
+        if set_type == 'bounds' or set_type == 'box':
             bounds = unsafe_set_description.get('bounds')
             is_complement = unsafe_set_description.get('complement', False)
             
@@ -380,7 +456,7 @@ def sample_from_unsafe_set(unsafe_set_description: Dict[str, Any]) -> List[float
             else:
                 return sample_from_set(unsafe_set_description)
                 
-        elif unsafe_set_description.get('type') == 'ball':
+        elif set_type == 'ball':
             center = unsafe_set_description.get('center')
             radius = unsafe_set_description.get('radius')
             is_complement = unsafe_set_description.get('complement', False)
@@ -400,7 +476,7 @@ def sample_from_unsafe_set(unsafe_set_description: Dict[str, Any]) -> List[float
                 return sample_from_set(unsafe_set_description)
         
         else:
-            raise ValueError(f"Unknown unsafe set type: {unsafe_set_description.get('type')}")
+            raise ValueError(f"Unknown unsafe set type: {set_type}")
             
     except Exception as e:
         print(f"ERROR: Unsafe set sampling failed: {e}")
@@ -408,12 +484,32 @@ def sample_from_unsafe_set(unsafe_set_description: Dict[str, Any]) -> List[float
 
 def is_point_in_set(point: List[float], set_description: Dict[str, Any]) -> bool:
     try:
-        if set_description.get('type') == 'ball':
+        if point is None:
+            logger.error("Point is None in is_point_in_set")
+            return False
+        
+        set_type = set_description.get('type')
+        
+        # Handle union type
+        if set_type == 'union':
+            sets = set_description.get('sets', [])
+            # Point is in union if it's in ANY of the sets
+            for subset in sets:
+                if is_point_in_set(point, subset):
+                    return True
+            return False
+        
+        if set_type == 'ball':
             center = set_description.get('center')
             radius = set_description.get('radius')
             is_complement = set_description.get('complement', False)
             
+            if center is None or radius is None:
+                logger.error("Ball set description missing 'center' or 'radius'")
+                return False
+            
             if len(point) != len(center):
+                logger.error(f"Point dimension {len(point)} != center dimension {len(center)}")
                 return False
                 
             distance = np.linalg.norm(np.array(point) - np.array(center))
@@ -421,16 +517,22 @@ def is_point_in_set(point: List[float], set_description: Dict[str, Any]) -> bool
             
             return not inside_ball if is_complement else inside_ball
                 
-        elif set_description.get('type') == 'bounds':
+        elif set_type == 'bounds' or set_type == 'box':
             bounds = set_description.get('bounds')
             is_complement = set_description.get('complement', False)
             
+            if bounds is None:
+                logger.error("Bounds/box set description missing 'bounds' field")
+                return False
+            
             if len(point) != len(bounds):
+                logger.error(f"Point dimension {len(point)} != bounds dimension {len(bounds)}")
                 return False
                 
             inside_bounds = True
             for i, (coord, bound) in enumerate(zip(point, bounds)):
                 if len(bound) < 2:
+                    logger.error(f"Invalid bound at index {i}: {bound}")
                     return False
                 if coord < bound[0] or coord > bound[1]:
                     inside_bounds = False
@@ -439,6 +541,7 @@ def is_point_in_set(point: List[float], set_description: Dict[str, Any]) -> bool
             return not inside_bounds if is_complement else inside_bounds
 
         else:
+            logger.error(f"Unknown set type: {set_type}")
             return False
                 
     except Exception as e:
@@ -447,6 +550,10 @@ def is_point_in_set(point: List[float], set_description: Dict[str, Any]) -> bool
 
 def simulate_one_step(initial_point: List[float], dynamics: str) -> List[List[float]]:
     # simulate 1 step
+    
+    if not initial_point:
+        print(f"ERROR: Invalid initial point for simulation")
+        return None
 
     if isinstance(dynamics, str):
             is_discrete = '[k+1]' in dynamics or '[k]' in dynamics
@@ -458,9 +565,16 @@ def simulate_one_step(initial_point: List[float], dynamics: str) -> List[List[fl
 
         if is_discrete:
             next_point = dynamics_function(initial_point, dynamics)
+            if next_point is None:
+                print(f"ERROR: Dynamics function returned None for discrete system")
+                return None
         else:
             dt = 0.01
             derivatives = dynamics_function(initial_point, dynamics)
+            if derivatives is None:
+                print(f"ERROR: Dynamics function returned None for continuous system")
+                return None
+            
             next_point = []
             for i, (coord, deriv) in enumerate(zip(initial_point, derivatives)):
                 next_coord = coord + dt * deriv
@@ -572,7 +686,12 @@ def validate_barrier_on_samples(barrier_expr: str, problem: Dict[str, Any], samp
             'conditions_satisfied': conditions_satisfied,
             'score': score,
             'confidence': confidence,
-            'counterexamples': {                                        # this only write if you want to see or debug, we don't use it in our paper
+            'condition_details': {
+                'condition_1_failed_count': condition_1_violations,
+                'condition_2_failed_count': condition_2_violations,
+                'condition_3_failed_count': condition_3_violations
+            },
+            'counterexamples': {
                 'condition_1': condition_1_counterexamples[:5], 
                 'condition_2': condition_2_counterexamples[:5],
                 'condition_3': condition_3_counterexamples[:5]
@@ -586,7 +705,7 @@ def validate_barrier_on_samples(barrier_expr: str, problem: Dict[str, Any], samp
             'success': False,
             'error': str(e)
         }
-
+        
 def parse_controller_expressions(controller_expr: str, problem: Dict[str, Any]) -> Dict[str, str]:
     try:
         controller_dict = {}
@@ -678,7 +797,15 @@ def dynamics_function(point: List[float], dynamics: str) -> List[float]:
         system_equations = [eq.strip() for eq in dynamics.split(',')]
         derivatives = []
         
+        # Create variable map for state variables x1-x10
         variable_map = {f'x{i+1}': point[i] if i < len(point) else 0.0 for i in range(10)}
+        
+        # Add controller parameters u0-u9 with default value 0
+        for i in range(10):
+            variable_map[f'u{i}'] = 0.0
+        
+        # Also add u (without number) for compatibility
+        variable_map['u'] = 0.0
         
         for eq in system_equations:
             if '=' in eq:
@@ -709,7 +836,11 @@ def dynamics_function(point: List[float], dynamics: str) -> List[float]:
 def barrier_function(expression: str, point: List[float]) -> float:
     # evaluate barrier function at given point
     try:
+        if not point:
+            print(f"ERROR: Invalid point for barrier evaluation")
+            return None
         
+        # Create variable map for state variables x1-x10
         variable_map = {f'x{i+1}': point[i] if i < len(point) else 0.0 for i in range(10)}
         
         var_values = variable_map.copy()
