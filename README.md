@@ -1,6 +1,5 @@
 # BarrierBench: Evaluating Large Language Models for Safety Verification in Dynamical Systems
 <a href='https://hycodev.com/dataset/barrierbench'><img src='https://img.shields.io/badge/Project-Page-Green'></a>
-<a href='https://arxiv.org/abs/2511.09363'><img src='https://img.shields.io/badge/arXiv-2511.09363-red'></a>
 <a href='https://arxiv.org/abs/2511.09363'><img src='https://img.shields.io/badge/L4DC-2026-blue'></a>
 
 [Ali Taheri](https://alitaheri2002.github.io/), [Alireza Taban](https://www.linkedin.com/in/alireza-taban-90a460121/), [Sadegh Soudjani](https://hycodev.com/ssoudjani), [Ashutosh Trivedi](https://www.cs.colorado.edu/~trivedi/)
