@@ -11,7 +11,7 @@ Isfahan University of Technology, Max Planck Institute for Software Systems, Uni
 This paper, accepted at the **8th Annual Learning for Dynamics & Control (L4DC) 2026**, introduces BarrierBench, a benchmark of 100 dynamical systems for evaluating LLMs on safety verification via barrier certificate synthesis. We propose an LLM-based agentic framework that uses natural language reasoning to propose, refine, and validate barrier certificates, integrating SMT-based verification and retrieval-augmented generation. The framework achieves over 90% success in generating valid certificates.
 
 ## Benchmark
-The benchmark is available at: https://hycodev.com/dataset/barrierbench
+The benchmark is available at: [https://hycodev.com/dataset/barrierbench](https://hycodev.com/data/BarrierBench.json)
 
 ## Installation
 ```bash
