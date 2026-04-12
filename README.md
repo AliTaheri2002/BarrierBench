@@ -54,11 +54,11 @@ python main.py
 
 ## Results
 
-| Approach | Claude Sonnet 4 Success Rate | Claude Sonnet 4 Solved | ChatGPT-4o Success Rate | ChatGPT-4o Solved |
-|----------|------------------------------|------------------------|-------------------------|-------------------|
-| Baseline (Single Prompt) | 41% | 41/100 | 17% | 17/100 |
-| **Full Framework** | **90%** | **90/100** | **46%** | **46/100** |
-| Improvement | +49% | +49 | +29% | +29 |
+| Approach | Claude Sonnet 4 | ChatGPT-4o |
+|----------|----------------|------------|
+| Baseline (Single Prompt) | 41% | 17% |
+| **Full Framework** | **90%** | **46%** |
+| Improvement | +49% | +29% |
 
 ## Citation
 ```bibtex
