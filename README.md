@@ -18,13 +18,6 @@ The benchmark is available at: [https://hycodev.com/dataset/barrierbench](https:
 pip install anthropic sympy z3-solver numpy
 ```
 
-| Package | Purpose |
-|---------|---------|
-| `anthropic` | LLM API client for Claude |
-| `sympy` | Symbolic mathematics for barrier parsing |
-| `z3-solver` | SMT-based formal verification |
-| `numpy` | Numerical sampling and validation |
-
 ## Overview
 Our agentic framework addresses the limitations of classical barrier certificate synthesis by:
 1. **Retrieval-Augmented Generation**: Retrieve similar solved problems from the benchmark dataset
