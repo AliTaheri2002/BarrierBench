@@ -22,7 +22,7 @@ class BarrierSynthesisAgent:
         self.retrieval_agent.client = self.client
         self.retrieval_agent.model = self.model
 
-    def synthesize_barrier_certificate(self, problem: Dict[str, Any]) -> Dict[str, Any]:
+    def synthesize_barrier_certificate(self, problem):
         start_time = time.time()
         self.iteration_history = []
 
