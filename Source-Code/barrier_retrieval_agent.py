@@ -39,8 +39,6 @@ class BarrierRetrievalAgent:
             record['controllers'] = controller_certificate
         self.test_cases.append(record)
         self._save()
-        if controller_certificate:
-            pass
 
     def find_most_similar(self, target_problem):
         target_features = self._extract_features(target_problem)
