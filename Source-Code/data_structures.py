@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 def generate_samples_for_barrier_validation(problem, num_samples=1000):
     state_space_X = compute_state_space_bounds(problem)
-    unified_samples = initial_samples = unsafe_samples = evolution_samples = []
+    unified_samples, initial_samples, unsafe_samples, evolution_samples = [], [], [], []
 
     is_unsafe_complement = problem['unsafe_set'].get('complement', False)
 
