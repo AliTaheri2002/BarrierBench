@@ -2,7 +2,7 @@ import logging
 import time
 import re
 from typing import Dict, List, Tuple, Optional, Any
-from data_structures import generate_samples_for_barrier_validation, validate_barrier_on_samples, parse_controller_expressions
+from utils import generate_samples_for_barrier_validation, validate_barrier_on_samples, parse_controller_expressions, substitute_controller_into_dynamics_for_samples
 from barrier_verifier_agent import validate_barrier_with_agentic_smt
 from barrier_retrieval_agent import BarrierRetrievalAgent
 import anthropic
@@ -98,7 +98,8 @@ class BarrierSynthesisAgent:
                     if ref_score > best_score:
                         best_barrier = refined_barrier
                         best_controller = refined_controller if has_controller else None
-                        best_score = ref_score; best_verification = ref_verification
+                        best_score = ref_score
+                        best_verification = ref_verification
 
                     if ref_score == 3:
                         break
@@ -206,13 +207,13 @@ class BarrierSynthesisAgent:
         content = response.content[0].text
 
         if has_controller:
-            barrier_expr, controller_expr = self._extract_barrier_and_controller(content)
+            barrier_expr, controller_expr = self._extract(content, with_controller=True)
             if barrier_expr and controller_expr:
                 return (barrier_expr, controller_expr)
             logger.warning("Failed to extract barrier and/or controller")
             return None
         else:
-            barrier_expr = self._extract_barrier(content)
+            barrier_expr = self._extract(content)
             if barrier_expr:
                 return barrier_expr
             logger.warning("Failed to extract barrier")
@@ -295,13 +296,13 @@ class BarrierSynthesisAgent:
         content = response.content[0].text
 
         if has_controller:
-            refined_barrier, refined_controller = self._extract_refined_barrier_and_controller(content)
+            refined_barrier, refined_controller = self._extract(content, refined=True, with_controller=True)
             if refined_barrier and refined_controller:
                 return (refined_barrier, refined_controller)
             logger.warning(f"Failed to extract refined barrier/controller from refinement {refinement_num}")
             return None
         else:
-            refined_expr = self._extract_barrier(content, refined=True)
+            refined_expr = self._extract(content, refined=True)
             if refined_expr:
                 return refined_expr
             logger.warning(f"Failed to extract refined barrier from refinement {refinement_num}")
@@ -313,7 +314,7 @@ class BarrierSynthesisAgent:
         if controller_expr:
             controller_dict = parse_controller_expressions(controller_expr, problem)
             if controller_dict:
-                closed_loop = self._substitute_controller_into_dynamics(problem['dynamics'], controller_dict)
+                closed_loop = substitute_controller_into_dynamics_for_samples(problem['dynamics'], controller_dict)
                 if not closed_loop:
                     logger.warning("Failed to substitute controller into dynamics")
                     return None
@@ -406,58 +407,16 @@ class BarrierSynthesisAgent:
             entry['controller'] = controller
         self.iteration_history.append(entry)
 
-    def _substitute_controller_into_dynamics(self, dynamics_str, controller_dict):
-        if not controller_dict:
-            return dynamics_str
-
-        equations = [eq.strip() for eq in dynamics_str.split(',')]
-        substituted = []
-        for eq in equations:
-            for param, expr in controller_dict.items():
-                eq = re.sub(r'\b' + re.escape(param) + r'\b', f'({expr})', eq)
-            substituted.append(eq)
-
-        closed_loop = ', '.join(substituted)
-        return closed_loop
-
-    def _extract_barrier(self, content, refined=False):
-        patterns = [
-            r'REFINED_BARRIER\s*:\s*(.+?)(?:\n|$)',
-            r'BARRIER\s*:\s*(.+?)(?:\n|$)',
-            r'BARRIER_CERTIFICATE\s*:\s*(.+?)(?:\n|$)',
-            r'B\(x\)\s*=\s*(.+?)(?:\n|$)'
-        ]
-
-        for pattern in patterns:
-            matches = re.findall(pattern, content, re.IGNORECASE | re.MULTILINE)
-            if matches:
-                cleaned = self._clean_expression(matches[0].strip())
-                if cleaned and self._validate_expression(cleaned):
-                    return cleaned
-
-        # fallback: line scan
-        for line in content.split('\n'):
-            line = line.strip()
-            if any(w in line.lower() for w in ['compute', 'derivative', 'verify', 'analysis', 'let me', 'boundary', 'violation', 'check']):
-                continue
-            if (len(line) > 10 and re.search(r'x\d+', line) and any(op in line for op in ['+', '-', '*']) and
-                    re.search(r'\d', line) and not any(w in line.lower() for w in ['barrier', 'certificate', 'template', 'function', 'expression'])):
-                cleaned = self._clean_expression(line)
-                if cleaned and self._validate_expression(cleaned):
-                    return cleaned
-
-        return None
-
-    def _extract_barrier_and_controller(self, content):
-        barrier_patterns = [
-            r'BARRIER\s*:\s*(.+?)(?:\n|$)',
-            r'BARRIER_CERTIFICATE\s*:\s*(.+?)(?:\n|$)',
-            r'B\(x\)\s*=\s*(.+?)(?:\n|$)'
-        ]
-        controller_patterns = [
-            r'CONTROLLER\s*:\s*([\s\S]+?)(?:\n\n|\n[A-Z]|$)',
-            r'CONTROL\s*:\s*([\s\S]+?)(?:\n\n|\n[A-Z]|$)',
-        ]
+    def _extract(self, content, refined=False, with_controller=False):
+        barrier_patterns = []
+        if refined or not with_controller:
+            barrier_patterns.append(r'REFINED_BARRIER\s*:\s*(.+?)(?:\n|$)')
+        barrier_patterns.append(r'BARRIER\s*:\s*(.+?)(?:\n|$)')
+        if not refined:
+            barrier_patterns += [
+                r'BARRIER_CERTIFICATE\s*:\s*(.+?)(?:\n|$)',
+                r'B\(x\)\s*=\s*(.+?)(?:\n|$)'
+            ]
 
         barrier_expr = None
         for pattern in barrier_patterns:
@@ -468,35 +427,30 @@ class BarrierSynthesisAgent:
                     barrier_expr = cleaned
                     break
 
-        controller_expr = None
-        for pattern in controller_patterns:
-            matches = re.findall(pattern, content, re.IGNORECASE | re.MULTILINE)
-            if matches:
-                cleaned = self._clean_controller_expression(matches[0].strip())
-                if cleaned:
-                    controller_expr = cleaned
-                    break
+        # fallback line scan — only for barrier-only extraction
+        if barrier_expr is None and not with_controller:
+            for line in content.split('\n'):
+                line = line.strip()
+                if any(w in line.lower() for w in ['compute', 'derivative', 'verify', 'analysis', 'let me', 'boundary', 'violation', 'check']):
+                    continue
+                if (len(line) > 10 and re.search(r'x\d+', line) and any(op in line for op in ['+', '-', '*']) and
+                        re.search(r'\d', line) and not any(w in line.lower() for w in ['barrier', 'certificate', 'template', 'function', 'expression'])):
+                    cleaned = self._clean_expression(line)
+                    if cleaned and self._validate_expression(cleaned):
+                        barrier_expr = cleaned
+                        break
 
-        return barrier_expr, controller_expr
+        if not with_controller:
+            return barrier_expr
 
-    def _extract_refined_barrier_and_controller(self, content):
-        barrier_patterns = [
-            r'REFINED_BARRIER\s*:\s*(.+?)(?:\n|$)',
-            r'BARRIER\s*:\s*(.+?)(?:\n|$)',
-        ]
-        controller_patterns = [
-            r'REFINED_CONTROLLER\s*:\s*([\s\S]+?)(?:\n\n|\n[A-Z]|$)',
+        controller_patterns = []
+        if refined:
+            controller_patterns.append(r'REFINED_CONTROLLER\s*:\s*([\s\S]+?)(?:\n\n|\n[A-Z]|$)')
+        controller_patterns += [
             r'CONTROLLER\s*:\s*([\s\S]+?)(?:\n\n|\n[A-Z]|$)',
         ]
-
-        barrier_expr = None
-        for pattern in barrier_patterns:
-            matches = re.findall(pattern, content, re.IGNORECASE | re.MULTILINE)
-            if matches:
-                cleaned = self._clean_expression(matches[0].strip())
-                if cleaned and self._validate_expression(cleaned):
-                    barrier_expr = cleaned
-                    break
+        if not refined:
+            controller_patterns.append(r'CONTROL\s*:\s*([\s\S]+?)(?:\n\n|\n[A-Z]|$)')
 
         controller_expr = None
         for pattern in controller_patterns:

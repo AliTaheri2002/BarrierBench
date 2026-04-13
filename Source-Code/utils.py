@@ -96,10 +96,15 @@ def generate_samples_for_barrier_validation(problem, num_samples=1000):
     unsafe_count = sum(1 for s in unified_samples if s['in_unsafe_set'])
 
     return {
-        'unified_samples': unified_samples, 'initial': initial_samples,
-        'unsafe': unsafe_samples, 'evolution': evolution_samples,
-        'statistics': {'total_samples': len(unified_samples), 'initial_set_count': initial_count,
-        'unsafe_set_count': unsafe_count}
+        'unified_samples': unified_samples,
+        'initial': initial_samples,
+        'unsafe': unsafe_samples,
+        'evolution': evolution_samples,
+        'statistics': {
+            'total_samples': len(unified_samples),
+            'initial_set_count': initial_count,
+            'unsafe_set_count': unsafe_count,
+        }
     }
 
 
