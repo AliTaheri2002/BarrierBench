@@ -348,7 +348,7 @@ def validate_barrier_on_samples(barrier_expr, problem, samples, controller_expr=
         'success': True,
         'conditions_satisfied': [c1_ok, c2_ok, c3_ok],
         'score': score,
-        'confidence': 0.99 if score == 3 else (score / 3.0) * 0.8,
+        'confidence': 0.99 if score == 3 else (score / 3.0),
         'condition_details': {'condition_1_failed_count': c1_violations, 'condition_2_failed_count': c2_violations,
         'condition_3_failed_count': c3_violations},
         'counterexamples': {'condition_1': c1_counterexamples[:5], 'condition_2': c2_counterexamples[:5], 'condition_3': c3_counterexamples[:5]},
