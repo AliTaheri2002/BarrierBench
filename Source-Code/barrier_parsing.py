@@ -51,10 +51,6 @@ def clean_barrier_expression(synthesized_barrier):
         return ""
 
     synthesized_barrier = re.sub(r'[+\-\*]+$', '', synthesized_barrier).strip()
-
-    if synthesized_barrier:
-        pass
-
     return synthesized_barrier
 
 
