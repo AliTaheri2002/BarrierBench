@@ -2,8 +2,9 @@ import os
 import json
 import re
 import logging
-from typing import Dict, List, Any, Optional
 import anthropic
+import sympy as sp
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -68,12 +69,23 @@ class BarrierRetrievalAgent:
             return 'continuous'
         return 'unknown'
 
-    def _get_linearity(self, dynamics):
-        if re.search(r'x\d+\*\*[2-9]', dynamics) or re.search(r'x\d+\*x\d+', dynamics):
+    def _get_linearity(dynamics: str) -> str:
+        var_names = sorted(set(re.findall(r'x\d+', dynamics)))
+        if not var_names:
+            return 'unknown'
+        
+        rhs_match = re.search(r'=\s*(.+)', dynamics)
+        rhs = rhs_match.group(1) if rhs_match else dynamics
+        
+        expr = sp.sympify(rhs, {n: sp.Symbol(n) for n in var_names})
+        
+        if any((isinstance(node, sp.Pow) and node.args[1] != 1) or 
+            (isinstance(node, sp.Function) and node.args) or
+            (isinstance(node, sp.Mul) and len([v for v in var_names if node.has(sp.Symbol(v))]) > 1)
+            for node in sp.preorder_traversal(expr)):
             return 'nonlinear'
-        elif re.search(r'x\d+', dynamics):
-            return 'linear'
-        return 'unknown'
+        
+        return 'linear'
 
     def _get_topology(self, initial_set, unsafe_set):
         init_type = initial_set.get('type', 'unknown')
