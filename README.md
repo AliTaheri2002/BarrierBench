@@ -14,8 +14,11 @@ This paper, accepted at the **8th Annual Learning for Dynamics & Control (L4DC) 
 The benchmark is available at: [https://hycodev.com/dataset/barrierbench](https://hycodev.com/data/BarrierBench.json)
 
 ## Installation
+
+Install dependencies using the provided `requirements.txt`:
+
 ```bash
-pip install anthropic sympy z3-solver numpy
+pip install -r requirements.txt
 ```
 
 ## Overview
