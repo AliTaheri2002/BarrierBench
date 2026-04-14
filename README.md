@@ -13,6 +13,7 @@ This paper, accepted at the **8th Annual Learning for Dynamics & Control (L4DC) 
 ## Benchmark
 The benchmark is available at: [https://hycodev.com/dataset/barrierbench](https://hycodev.com/data/BarrierBench.json)
 
+
 ## Installation
 
 Install dependencies using the provided `requirements.txt`:
