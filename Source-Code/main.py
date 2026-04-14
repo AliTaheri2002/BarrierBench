@@ -1,25 +1,33 @@
 import logging
 from barrier_synthesis_agent import BarrierSynthesisAgent
 
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("anthropic").setLevel(logging.WARNING)
+
 logging.basicConfig(level=logging.INFO)
+
 
 
 if __name__ == "__main__":
 
     test_problem = {
-        "dynamics": "dx1/dt = -0.1*x1 - 0.5",
-        "initial_set": {
-            "type": "bounds",
-            "bounds": [[1.0, 2.0]]
-        },
-        "unsafe_set": {
-            "type": "bounds",
-            "bounds": [[5.0, 6.0]],
-            "complement": False
-        }
-    }
+    "dynamics": "dx1/dt = x2 + u0, dx2/dt = -0.8*x1 - 0.15*x2 + 0.2*x1**2 + u1, dx3/dt = -0.1*x3 + 0.1*x1 + u2",
+    "initial_set": {
+      "type": "ball",
+      "radius": 0.4,
+      "center": [0, 0, 0]
+    },
+    "unsafe_set": {
+      "type": "ball",
+      "radius": 3,
+      "center": [0, 0, 0],
+      "complement": True
+    },
+    "controller_parameters": "u0, u1, u2"
+}
 
-    synthesizer = BarrierSynthesisAgent(api_key="API KEY", max_iterations=5, dataset_json_path="../Benchmark/barrier_dataset.json")
+    synthesizer = BarrierSynthesisAgent(api_key="YOUR API KEY", max_iterations=5, dataset_json_path="../Benchmark/BarrierBench.json")
 
     result = synthesizer.synthesize_barrier_certificate(test_problem)
 

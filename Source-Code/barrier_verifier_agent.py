@@ -596,7 +596,6 @@ def verify_invariance_condition(barrier_expression, barrier_z3, z3_variables, dy
     if dynamics_exprs is None or len(dynamics_exprs) != len(all_system_variables):
         raise ValueError(f'Dynamics dimension mismatch')
 
-    # add any controller symbols to z3_variables
     controller_symbols = set()
     for dy in dynamics_exprs:
         controller_symbols.update(s for s in dy.free_symbols if str(s).startswith('u') and (str(s)[1:].isdigit() or len(str(s)) == 1))

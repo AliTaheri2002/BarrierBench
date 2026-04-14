@@ -136,7 +136,6 @@ class BarrierSynthesisAgent:
     def get_template_and_barrier_from_llm(self, problem, iteration, has_controller=False):
         dynamics = problem.get('dynamics', '')
         is_discrete = '[k+1]' in dynamics or '[k]' in dynamics
-        system_type = "DISCRETE-TIME" if is_discrete else "CONTINUOUS-TIME"
         condition_3_desc = "B(f(x)) - B(x) ≤ 0 for all x in the state space" if is_discrete else "∇B(x)·f(x) < 0 on boundary"
 
         if iteration == 1:

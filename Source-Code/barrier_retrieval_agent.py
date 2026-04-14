@@ -44,12 +44,19 @@ class BarrierRetrievalAgent:
     def find_most_similar(self, target_problem):
         target_features = self._extract_features(target_problem)
         if not target_features:
+            logger.info("No features extracted from target problem - starting from scratch")
             return None
+        
         compatible = [c for c in self.test_cases if self._check_compatible(target_features, self._extract_features(c['problem']))]
 
         if not compatible:
+            logger.info("No compatible problems found in dataset - starting from scratch")
             return None
-        return self._llm_select(target_problem, compatible)
+        
+        logger.info(f"Found {len(compatible)} compatible problem(s) in dataset, selecting most similar via LLM...")
+        result = self._llm_select(target_problem, compatible)
+        
+        return result
 
     def _extract_features(self, problem):
         dynamics = problem.get('dynamics', '')
@@ -69,21 +76,37 @@ class BarrierRetrievalAgent:
             return 'continuous'
         return 'unknown'
 
-    def _get_linearity(dynamics: str) -> str:
+    def _get_linearity(self, dynamics):
         var_names = sorted(set(re.findall(r'x\d+', dynamics)))
         if not var_names:
             return 'unknown'
         
-        rhs_match = re.search(r'=\s*(.+)', dynamics)
-        rhs = rhs_match.group(1) if rhs_match else dynamics
+        dynamics = re.sub(r'\[k\+1\]', '', dynamics)
+        dynamics = re.sub(r'\[k\]', '', dynamics)
         
-        expr = sp.sympify(rhs, {n: sp.Symbol(n) for n in var_names})
+        equations = dynamics.split(',')
+        first_eq = equations[0].strip()
         
-        if any((isinstance(node, sp.Pow) and node.args[1] != 1) or 
-            (isinstance(node, sp.Function) and node.args) or
-            (isinstance(node, sp.Mul) and len([v for v in var_names if node.has(sp.Symbol(v))]) > 1)
-            for node in sp.preorder_traversal(expr)):
-            return 'nonlinear'
+        if '=' in first_eq:
+            rhs = first_eq.split('=')[1].strip()
+        else:
+            rhs = first_eq
+        
+        rhs = re.sub(r'dx\d+/dt', '', rhs)
+        rhs = re.sub(r'u\d+', '0', rhs)
+        
+        symbols = {n: sp.Symbol(n) for n in var_names}
+        expr = sp.sympify(rhs, symbols)
+        
+        for node in sp.preorder_traversal(expr):
+            if isinstance(node, sp.Pow) and node.args[1] != 1:
+                return 'nonlinear'
+            if isinstance(node, sp.Function) and node.args:
+                return 'nonlinear'
+            if isinstance(node, sp.Mul):
+                var_count = sum(1 for v in var_names if node.has(sp.Symbol(v)))
+                if var_count > 1:
+                    return 'nonlinear'
         
         return 'linear'
 
@@ -119,6 +142,8 @@ class BarrierRetrievalAgent:
             candidates_text += f"Initial: {p.get('initial_set')}\n"
             candidates_text += f"Unsafe: {p.get('unsafe_set')}\n"
             candidates_text += f"Successful barrier: {c['barrier']}\n"
+            if 'controllers' in c:
+                candidates_text += f"Successful controller: {c['controllers']}\n"
 
         prompt = f"""TARGET PROBLEM:
 Dynamics: {target_problem.get('dynamics')}
@@ -132,6 +157,7 @@ Focus on: system structure, problem type, and mathematical pattern similarity.
 
 Answer with only the candidate number (1, 2, 3, etc.): """
 
+    
         response = self.client.messages.create(model=self.model, max_tokens=100, messages=[{"role": "user", "content": prompt}])
 
         raw_output = response.content[0].text.strip()
