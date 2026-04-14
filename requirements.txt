@@ -1,0 +1,4 @@
+anthropic==0.49.0
+sympy==1.13.3
+z3-solver==4.13.4.0
+numpy==2.2.4
